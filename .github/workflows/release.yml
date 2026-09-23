@@ -25,7 +25,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0   # tags too, to see whether this version is tagged already
+          fetch-depth: 0   # tags and full history: is it tagged, and which commit added it
 
       - name: Read the top CHANGELOG.md section
         id: notes
@@ -43,11 +43,20 @@ jobs:
           if git rev-parse --quiet --verify "refs/tags/${tag}" > /dev/null; then
             echo "Tag ${tag} already exists."
           else
+            # Tag the commit that added this version's heading (its release PR's
+            # squash commit), not GITHUB_SHA: if an earlier Publish run failed
+            # and a later merge's run gets here first, GITHUB_SHA is that later
+            # merge, not the release.
+            commit="$(git log -1 --format=%H -S"## [${VERSION}]" -- CHANGELOG.md)"
+            if [ -z "${commit}" ]; then
+              echo "No commit adds '## [${VERSION}]' to CHANGELOG.md." >&2
+              exit 1
+            fi
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             # verbatim: the default cleanup strips every line starting with "#",
             # which would drop the section's ### headings from the tag message.
-            git tag --annotate --cleanup=verbatim "${tag}" --file "${RUNNER_TEMP}/notes.md" "${GITHUB_SHA}"
+            git tag --annotate --cleanup=verbatim "${tag}" --file "${RUNNER_TEMP}/notes.md" "${commit}"
             git push origin "refs/tags/${tag}"
           fi
 

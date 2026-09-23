@@ -37,6 +37,10 @@ eval_runs/
 # Local-only notes: real names behind the committed placeholders (see CLAUDE.md).
 CLAUDE.local.md
 
+# The retired pre-Jira ticket backlog, now in the private notes repo
+# (CONTRIBUTING.md, section 7). Still ignored: those files can name real companies.
+docs/tickets/
+
 # CI tool caches and coverage output
 .ruff_cache/
 .coverage

@@ -16,10 +16,12 @@ The rules (CONTRIBUTING.md, sections 3 and 4):
 
 - The PR title starts with a Jira key, `EV-<n>: `, unless the PR carries the
   `no-jira` label.
-- Every `## [` line in the PR's CHANGELOG.md is a version heading,
-  `## [x.y.z] - YYYY-MM-DD` with a real calendar date. `## [Unreleased]` is
-  gone for good. Only the PR's own file is held to this; the base branch's
-  file is read leniently, because the first PR under these rules still had
+- Every line of the PR's CHANGELOG.md that looks like a version heading
+  (starts `## [`, or is a `#` heading starting with a version number, such
+  as `## 0.4.0`) is exactly `## [x.y.z] - YYYY-MM-DD`: no leading zeros in
+  x, y or z, and a real calendar date. `## [Unreleased]` is gone for good.
+  Only the PR's own file is held to this; the base branch's file is read
+  leniently, because the first PR under these rules still had
   `## [Unreleased]` in its base.
 - A PR without the `no-release` label is a release: it adds exactly one
   heading, at the top, and leaves every existing heading unchanged. The new
@@ -29,6 +31,9 @@ The rules (CONTRIBUTING.md, sections 3 and 4):
   key. There is deliberately no upper bound on the date: the check runs in
   UTC, and a maintainer ahead of UTC writing after local midnight would
   otherwise be rejected.
+- Every section the base branch has already released keeps its number of
+  `- ` entries: released entries are never added or removed. Rewording one,
+  e.g. to fix a reference, is fine.
 - A PR with the `no-release` label leaves every version heading (version and
   date) exactly as the base has it. Text inside released sections may still
   change, e.g. a typo or reference fix.
@@ -46,7 +51,12 @@ from dataclasses import dataclass
 NO_RELEASE = "no-release"
 NO_JIRA = "no-jira"
 
-_HEADING_RE = re.compile(r"^## \[(\d+)\.(\d+)\.(\d+)\] - (\d{4}-\d{2}-\d{2})$")
+_HEADING_RE = re.compile(
+    r"^## \[(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\] - (\d{4}-\d{2}-\d{2})$"
+)
+# A line meant as a version heading but maybe malformed: `## [`, or any
+# `#` heading whose text starts with a version number (`## 0.4.0`, `##[0.4.0]`).
+_HEADING_LIKE_RE = re.compile(r"^(## \[|#{1,6}\s*\[?v?\d)")
 _TITLE_RE = re.compile(r"^(EV-\d+): \S")
 
 
@@ -68,7 +78,8 @@ class Heading:
 
 def parse_headings(text: str) -> tuple[list[Heading], list[str]]:
     """Return every valid version heading in `text`, top first, plus a
-    problem message for each `## [` line that is not one.
+    problem message for each heading-like line (`_HEADING_LIKE_RE`) that is
+    not one.
 
     A line that is not a version heading, or whose date is not a real
     calendar date, is reported and left out of the returned headings.
@@ -76,7 +87,7 @@ def parse_headings(text: str) -> tuple[list[Heading], list[str]]:
     headings: list[Heading] = []
     problems: list[str] = []
     for number, line in enumerate(text.splitlines(), start=1):
-        if not line.startswith("## ["):
+        if not _HEADING_LIKE_RE.match(line):
             continue
         match = _HEADING_RE.match(line)
         if match is None:
@@ -117,6 +128,34 @@ def section_text(text: str, heading: Heading) -> str:
     return "\n".join(body).strip("\n")
 
 
+def entry_count(text: str, heading: Heading) -> int:
+    """How many `- ` entries the section under `heading` has."""
+    return sum(line.startswith("- ") for line in section_text(text, heading).splitlines())
+
+
+def released_entry_changes(
+    base_text: str, base: list[Heading], head_text: str, head: list[Heading]
+) -> list[str]:
+    """A problem for each released section whose number of `- ` entries
+    differs between the base and the PR.
+
+    `base` and `head` are the same released headings, in the same order,
+    as found in `base_text` and `head_text`.
+    """
+    problems: list[str] = []
+    for old, new in zip(base, head):
+        before = entry_count(base_text, old)
+        after = entry_count(head_text, new)
+        if before != after:
+            problems.append(
+                f"The released {old.label} section has {after} `- ` entries, "
+                f"but {before} on the base branch. Released entries are never "
+                "added or removed; rewording one is fine (CONTRIBUTING.md, "
+                "section 3)."
+            )
+    return problems
+
+
 def check_pr(title: str, labels: list[str], base_text: str, head_text: str) -> list[str]:
     """Every way this PR breaks the release rules; an empty list means none.
 
@@ -150,6 +189,8 @@ def check_pr(title: str, labels: list[str], base_text: str, head_text: str) -> l
                 "version heading in CHANGELOG.md. Remove the label if this is "
                 "a release, or restore the headings."
             )
+        else:
+            problems.extend(released_entry_changes(base_text, base, head_text, head))
         return problems
 
     if len(head_ids) != len(base_ids) + 1 or head_ids[1:] != base_ids:
@@ -161,6 +202,7 @@ def check_pr(title: str, labels: list[str], base_text: str, head_text: str) -> l
         )
         return problems
 
+    problems.extend(released_entry_changes(base_text, base, head_text, head[1:]))
     new = head[0]
     if base:
         top = base[0]
@@ -177,10 +219,9 @@ def check_pr(title: str, labels: list[str], base_text: str, head_text: str) -> l
                 f"{top.label} ({top.date})."
             )
 
-    section = section_text(head_text, new)
-    if not any(line.startswith("- ") for line in section.splitlines()):
+    if entry_count(head_text, new) == 0:
         problems.append(f"The {new.label} section has no `- ` entries.")
-    if key is not None and not re.search(rf"\b{re.escape(key)}\b", section):
+    if key is not None and not re.search(rf"\b{re.escape(key)}\b", section_text(head_text, new)):
         problems.append(
             f"The {new.label} section must cite the PR's ticket, {key}, "
             f"e.g. at the end of an entry: ({key})."

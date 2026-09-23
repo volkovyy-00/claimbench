@@ -165,6 +165,50 @@ def test_every_problem_is_reported_at_once():
     assert len(problems) == 2
 
 
+# --- malformed headings --------------------------------------------------
+
+
+@pytest.mark.parametrize("line", ["## 0.3.0 - 2026-09-23", "##[0.3.0] - 2026-09-23", "## v0.3.0 - 2026-09-23"])
+def test_heading_without_the_bracket_form_is_reported(line):
+    # Before, only `## [` lines were looked at, so a no-release PR adding one of these passed.
+    head = BASE.replace("## [0.2.0]", f"{line}\n\n## [0.2.0]")
+    problems = check(head, labels=["no-release"])
+    assert problems == [
+        f"CHANGELOG.md line 5: {line!r} is not a `## [x.y.z] - YYYY-MM-DD` heading. There is no "
+        "`## [Unreleased]` section: each release PR adds its own version heading (CONTRIBUTING.md, section 3)."
+    ]
+
+
+def test_version_with_a_leading_zero_is_reported():
+    # 0.03.0 would otherwise count as 0.3.0 and be tagged v0.3.0.
+    problems = check(with_release("## [0.03.0] - 2026-09-23"))
+    assert any("'## [0.03.0] - 2026-09-23' is not a" in p for p in problems)
+
+
+# --- released entries ----------------------------------------------------
+
+
+def test_no_release_pr_that_removes_a_released_entry_fails():
+    head = BASE.replace("- Something older. (EV-1)\n", "")
+    problems = check(head, title="EV-3: Tidy", labels=["no-release"])
+    assert problems == [
+        "The released 0.2.0 section has 0 `- ` entries, but 1 on the base branch. "
+        "Released entries are never added or removed; rewording one is fine (CONTRIBUTING.md, section 3)."
+    ]
+
+
+def test_no_release_pr_that_adds_an_entry_to_a_released_section_fails():
+    head = BASE.replace("- Something older. (EV-1)\n", "- Something older. (EV-1)\n- Added late. (EV-3)\n")
+    problems = check(head, title="EV-3: Tidy", labels=["no-release"])
+    assert any("0.2.0 section has 2 `- ` entries, but 1 on the base branch" in p for p in problems)
+
+
+def test_release_pr_that_removes_an_older_entry_fails():
+    head = with_release("## [0.3.0] - 2026-09-23").replace("- The first release.\n", "")
+    problems = check(head)
+    assert any("0.1.0 section has 0 `- ` entries, but 1 on the base branch" in p for p in problems)
+
+
 # --- notes for the Publish release workflow ------------------------------
 
 

@@ -7,7 +7,8 @@ and [Semantic Versioning](https://semver.org/spec/v2.0.0.html). There is
 no package to publish: every pull request with a user-visible change is a
 release. It adds its own `## [x.y.z] - DATE` heading here, and merging it
 tags `vx.y.z` and publishes a GitHub Release automatically. Each entry
-cites its Jira ticket (`EV-N`). Pre-1.0 — the CLI/API may break between
+cites its Jira ticket (`EV-N`); entries written before the move to Jira,
+including most of 0.3.0, cite none. Pre-1.0 — the CLI/API may break between
 minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 
 ## [0.3.0] - 2026-09-23

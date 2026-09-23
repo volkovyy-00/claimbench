@@ -30,7 +30,7 @@ results behind the `extract_atomic_claims` prompt edits (design decisions
 5, 15, 16) — this file keeps their rules and current residuals, the log
 keeps the `0/3 → 3/3` evidence. `docs/design-decisions/` (committed) holds
 the full observed-failure narrative for the design decisions whose entry
-below is a condensed rule + current residual + pointer (currently 5, 7,
+below is a condensed rule + current residual + pointer (5, 7,
 9, 11, 12, 13, 14, 15, 16, 17, 18) — split out so this file stays loadable every session without
 carrying every design decision's complete history; the numbered entry
 below is authoritative on the rule itself, the linked file is the "why"
@@ -59,8 +59,8 @@ decisions; don't let rationale or design detail creep into README.
 ## Environment
 
 - `.env` (real credentials, never read/print its contents) holds
-  `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` — currently OpenRouter +
-  `openai/gpt-4.1-mini` (deliberate, 2026-09-22). It was
+  `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` — set to OpenRouter +
+  `openai/gpt-4.1-mini` on 2026-09-22 (deliberate). It was
   `openai/gpt-oss-120b`, a reasoning model: that's why `call_llm` sets
   `max_tokens` explicitly (design decision 4), which stays the right
   guard if a reasoning model is ever set here again. Design decisions 5,
@@ -739,8 +739,8 @@ unreadable-file handling, `_error_row`'s overwritten `uuid4`) is in
    ("… a EUR 500m revolving credit facility.") 2/3 runs — silent
    containment the ticket-007 identical-text WARNING doesn't catch (it
    only fires on byte-identical text), a candidate for EV-6's
-   always-on check. In-context reliability rides on EV-7's
-   granularity ceiling (decision 15) staying open.
+   always-on check. In-context reliability depends on the granularity
+   ceiling (decision 15, EV-7).
 
    Full narrative — the observed Borealis case, why this folds into
    self-test 2 rather than a third test, the self-test-1 tension, and the

@@ -18,7 +18,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0   # all branches, so the base branch's CHANGELOG.md can be read
+          # The checkout is GitHub's merge of the PR into its base; depth 2
+          # brings that merge's parents, and HEAD^1 is exactly the base it was
+          # built on (the tip of the base branch may have moved since).
+          fetch-depth: 2
 
       # The title and labels come in through env, never through ${{ }} inside
       # the script: a PR title is untrusted input.
@@ -26,7 +29,6 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-          BASE_REF: ${{ github.base_ref }}
         run: |
-          git show "origin/${BASE_REF}:CHANGELOG.md" > "${RUNNER_TEMP}/base-CHANGELOG.md"
+          git show "HEAD^1:CHANGELOG.md" > "${RUNNER_TEMP}/base-CHANGELOG.md"
           python3 .github/scripts/release_check.py check "${RUNNER_TEMP}/base-CHANGELOG.md" CHANGELOG.md

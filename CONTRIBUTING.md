@@ -46,7 +46,8 @@ flag, output column, file format, config key, or pipeline behaviour.
 - **Sections:** Keep a Changelog's `### Added`, `### Changed`,
   `### Deprecated`, `### Removed`, `### Fixed`, `### Security`. End each
   entry with its ticket key, e.g. `(EV-12)`.
-- Released entries are never removed. Fixing a reference inside one is fine.
+- Released entries are never added or removed; the Release check counts
+  each released section's entries. Fixing a reference inside one is fine.
 
 **No: the PR is not a release.** CI, tests, dev-only dependencies, and
 internal docs such as this file or `CLAUDE.md` don't need a version. Add the
