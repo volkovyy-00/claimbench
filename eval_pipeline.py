@@ -1480,7 +1480,3 @@ def _main(argv: list[str]) -> None:
 
 if __name__ == "__main__":
     _main(sys.argv)
-
-
-# --- EV-3 smoke test: one violation per gate. This PR is never merged. ---
-_SMOKE_DIGEST = hashlib.md5(b"smoke").hexdigest()  # SonarCloud: weak-hash security hotspot
