@@ -8,9 +8,11 @@ Two workflows call this file; it uses only the standard library.
   names, as a JSON list, in `PR_LABELS`. It prints every problem it finds and
   exits 1 if there is any, 0 if there is none.
 - `.github/workflows/release.yml` (runs on every push to `main`) runs
-  `python3 release_check.py notes <CHANGELOG.md> <output file>`, which prints
-  the top version (e.g. `0.3.0`) and writes that version's changelog section
-  to the output file, for the tag message and the GitHub Release notes.
+  `python3 release_check.py versions <CHANGELOG.md>`, which prints every
+  version from 0.3.0 on (the first tagged one), oldest first, one per line.
+  For each, `python3 release_check.py notes <CHANGELOG.md> <version> <output
+  file>` writes that version's changelog section to the output file, for the
+  tag message and the GitHub Release notes.
 
 The rules (CONTRIBUTING.md, sections 3 and 4):
 
@@ -20,7 +22,8 @@ The rules (CONTRIBUTING.md, sections 3 and 4):
   Markdown allows), and every `#` heading that starts with a version number
   (e.g. `### 0.4.0`), is exactly `## [x.y.z] - YYYY-MM-DD`: no leading zeros
   in x, y or z, and a real calendar date. Lines inside fenced code blocks
-  are not headings. `## [Unreleased]` is gone for good.
+  are not headings; a fence closes only on the same character (``` or ~~~),
+  at least as long as the one that opened it. `## [Unreleased]` is gone for good.
   Only the PR's own file is held to this; the base branch's file is read
   leniently, because the first PR under these rules still had
   `## [Unreleased]` in its base.
@@ -63,15 +66,47 @@ _HEADING_RE = re.compile(
 # A line that must be a version heading: any `##` heading (not `###`), or any
 # `#` heading whose text starts with a version number, indented up to 3
 # spaces as Markdown allows (`## Unreleased`, ` ## [0.4.0]`, `##[0.4.0]`).
-_HEADING_LIKE_RE = re.compile(r"^ {0,3}(##(?!#)|#{1,6}\s*\[?v?\d)")
-# The opening or closing line of a fenced code block.
-_FENCE_RE = re.compile(r"^ {0,3}(```|~~~)")
+# Markdown needs a space after the `#`s, so a wrapped `  #3 ...` is not one.
+_HEADING_LIKE_RE = re.compile(r"^ {0,3}(##(?!#)|#{1,6}[ \t]+\[?v?\d)")
+# A fence line of a fenced code block: the fence, then the rest of the line.
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_TITLE_RE = re.compile(r"^(EV-\d+): \S")
+
+# The first version with a tag: 0.1.0 and 0.2.0 were released before this
+# repository was published and stay untagged.
+FIRST_TAGGED = (0, 3, 0)
 
 
 def _format_version(version: tuple[int, int, int]) -> str:
     """`(0, 3, 0)` as `0.3.0`, the spelling used in headings and tag names."""
     return "{}.{}.{}".format(*version)
-_TITLE_RE = re.compile(r"^(EV-\d+): \S")
+
+
+def _fenced(lines: list[str]) -> list[bool]:
+    """For each line, whether it is part of a fenced code block (its fence
+    lines included).
+
+    As in CommonMark, a fence closes only on the same character, at least as
+    long as the opening fence, with nothing but spaces after it.
+    """
+    flags: list[bool] = []
+    opener = ""
+    for line in lines:
+        match = _FENCE_RE.match(line)
+        if not opener:
+            if match:
+                opener = match[1]
+            flags.append(bool(match))
+            continue
+        flags.append(True)
+        if (
+            match
+            and match[1][0] == opener[0]
+            and len(match[1]) >= len(opener)
+            and not match[2].strip()
+        ):
+            opener = ""
+    return flags
 
 
 @dataclass(frozen=True)
@@ -100,12 +135,9 @@ def parse_headings(text: str) -> tuple[list[Heading], list[str]]:
     """
     headings: list[Heading] = []
     problems: list[str] = []
-    in_fence = False
-    for number, line in enumerate(text.splitlines(), start=1):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence or not _HEADING_LIKE_RE.match(line):
+    lines = text.splitlines()
+    for number, (line, fenced) in enumerate(zip(lines, _fenced(lines)), start=1):
+        if fenced or not _HEADING_LIKE_RE.match(line):
             continue
         match = _HEADING_RE.match(line)
         if match is None:
@@ -135,21 +167,30 @@ def next_versions(version: tuple[int, int, int]) -> list[tuple[int, int, int]]:
     return [(major, minor, patch + 1), (major, minor + 1, 0), (major + 1, 0, 0)]
 
 
-def section_text(text: str, heading: Heading) -> str:
-    """The lines between `heading` and the next `## [` line (or the end of
-    the file), with surrounding blank lines removed."""
-    lines = text.splitlines()[heading.line :]
-    body: list[str] = []
-    for line in lines:
-        if line.startswith("## ["):
+def _section_lines(text: str, heading: Heading) -> list[tuple[str, bool]]:
+    """Each line between `heading` and the next heading-like line outside a
+    fenced code block (or the end of the file), with whether it is fenced."""
+    lines = text.splitlines()
+    fenced = _fenced(lines)
+    body: list[tuple[str, bool]] = []
+    for line, in_fence in zip(lines[heading.line :], fenced[heading.line :]):
+        if not in_fence and _HEADING_LIKE_RE.match(line):
             break
-        body.append(line)
-    return "\n".join(body).strip("\n")
+        body.append((line, in_fence))
+    return body
+
+
+def section_text(text: str, heading: Heading) -> str:
+    """The section under `heading`, with surrounding blank lines removed."""
+    return "\n".join(line for line, _ in _section_lines(text, heading)).strip("\n")
 
 
 def entry_count(text: str, heading: Heading) -> int:
-    """How many `- ` entries the section under `heading` has."""
-    return sum(line.startswith("- ") for line in section_text(text, heading).splitlines())
+    """How many `- ` entries the section under `heading` has, not counting
+    lines inside fenced code blocks."""
+    return sum(
+        line.startswith("- ") and not fenced for line, fenced in _section_lines(text, heading)
+    )
 
 
 def released_entry_changes(
@@ -252,16 +293,23 @@ def check_pr(title: str, labels: list[str], base_text: str, head_text: str) -> l
     return problems
 
 
-def top_release(text: str) -> tuple[str, str]:
-    """The top version heading's version (e.g. '0.3.0') and its section.
+def tagged_versions(text: str) -> list[str]:
+    """Every version from `FIRST_TAGGED` on (e.g. '0.3.0'), oldest first:
+    the versions the `Publish release` workflow makes sure are tagged."""
+    headings, _ = parse_headings(text)
+    return [h.label for h in reversed(headings) if h.version >= FIRST_TAGGED]
 
-    Raises ValueError if CHANGELOG.md has no version heading.
+
+def release_notes(text: str, version: str) -> str:
+    """The changelog section of `version` (e.g. '0.3.0').
+
+    Raises ValueError if CHANGELOG.md has no heading for it.
     """
     headings, _ = parse_headings(text)
-    if not headings:
-        raise ValueError("CHANGELOG.md has no `## [x.y.z] - YYYY-MM-DD` heading.")
-    top = headings[0]
-    return top.label, section_text(text, top)
+    for heading in headings:
+        if heading.label == version:
+            return section_text(text, heading)
+    raise ValueError(f"CHANGELOG.md has no heading for version {version}.")
 
 
 def _read(path: str) -> str:
@@ -283,15 +331,19 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print("Release check passed.")
         return 0
-    if len(args) == 3 and args[0] == "notes":
-        version, section = top_release(_read(args[1]))
-        with open(args[2], "w", encoding="utf-8") as handle:
+    if len(args) == 2 and args[0] == "versions":
+        for version in tagged_versions(_read(args[1])):
+            print(version)
+        return 0
+    if len(args) == 4 and args[0] == "notes":
+        section = release_notes(_read(args[1]), args[2])
+        with open(args[3], "w", encoding="utf-8") as handle:
             handle.write(section + "\n")
-        print(version)
         return 0
     print(
         "usage: release_check.py check BASE_CHANGELOG HEAD_CHANGELOG\n"
-        "       release_check.py notes CHANGELOG OUTPUT_FILE",
+        "       release_check.py versions CHANGELOG\n"
+        "       release_check.py notes CHANGELOG VERSION OUTPUT_FILE",
         file=sys.stderr,
     )
     return 2

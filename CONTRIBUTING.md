@@ -79,9 +79,9 @@ version.
 
 - **After the merge,** the `Publish release` workflow tags `v<version>` and
   publishes a GitHub Release from that changelog section. Nothing to do by
-  hand. If it fails, re-run it before merging another release PR: it only
-  creates what is missing, but each run publishes only the top version, so
-  a later release would leave this one untagged.
+  hand. If it fails, re-run it, or let the next merge's run catch up: every
+  run creates whatever tag or Release is missing, for every version from
+  0.3.0 on.
 - **Two release PRs open at once** both claim the next version. After the
   first merges, the second conflicts on `CHANGELOG.md`. Update its branch
   from `main` and move its entry to the next version up.

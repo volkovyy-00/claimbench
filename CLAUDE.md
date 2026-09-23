@@ -886,8 +886,8 @@ Scan, and Release (`release-check.yml`: the PR title's Jira key and the
 `CHANGELOG.md` version rules in `CONTRIBUTING.md`, run by
 `.github/scripts/release_check.py`, which Ruff lints but Sonar and
 basedpyright do not cover). A sixth workflow, `release.yml`, is not a
-check: on every push to `main` it tags and publishes the top changelog
-version if that is not done yet.
+check: on every push to `main` it tags and publishes every changelog
+version from 0.3.0 on that is not done yet.
 Ruff runs only the E4/E7/E9/F rules and `ruff format` is not enforced
 (the broader set had a 91-finding backlog). The type check is
 **basedpyright** (a pyright fork) at `typeCheckingMode: standard` on the

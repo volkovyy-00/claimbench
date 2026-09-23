@@ -61,7 +61,7 @@ Other deliberate choices:
   the user made explicitly**: a typo'd `batchsize: 25` is a malformed
   override silently yielding the default. No `notes:` escape hatch;
   YAML `#` comments cover per-memo annotation. (A *repeated* key is a
-  separate, still-open gap — `yaml.safe_load` keeps the last value
+  separate gap — `yaml.safe_load` keeps the last value
   with no error, in both `memos.yaml` and a claims file's
   frontmatter; EV-8 tracks the fix.)
 - **Value ranges validated at config-load**, not left to the runtime

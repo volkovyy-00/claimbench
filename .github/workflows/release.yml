@@ -27,47 +27,48 @@ jobs:
         with:
           fetch-depth: 0   # tags and full history: is it tagged, and which commit added it
 
-      - name: Read the top CHANGELOG.md section
-        id: notes
-        run: |
-          version="$(python3 .github/scripts/release_check.py notes CHANGELOG.md "${RUNNER_TEMP}/notes.md")"
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-
-      # Each of the next two steps creates its thing only if it is missing, so a
-      # merge with no new version, or a re-run after a partial failure, is safe.
-      - name: Tag the release if not tagged yet
-        env:
-          VERSION: ${{ steps.notes.outputs.version }}
-        run: |
-          tag="v${VERSION}"
-          if git rev-parse --quiet --verify "refs/tags/${tag}" > /dev/null; then
-            echo "Tag ${tag} already exists."
-          else
-            # Tag the commit that added this version's heading (its release PR's
-            # squash commit), not GITHUB_SHA: if an earlier Publish run failed
-            # and a later merge's run gets here first, GITHUB_SHA is that later
-            # merge, not the release.
-            commit="$(git log -1 --format=%H -S"## [${VERSION}]" -- CHANGELOG.md)"
-            if [ -z "${commit}" ]; then
-              echo "No commit adds '## [${VERSION}]' to CHANGELOG.md." >&2
-              exit 1
-            fi
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            # verbatim: the default cleanup strips every line starting with "#",
-            # which would drop the section's ### headings from the tag message.
-            git tag --annotate --cleanup=verbatim "${tag}" --file "${RUNNER_TEMP}/notes.md" "${commit}"
-            git push origin "refs/tags/${tag}"
-          fi
-
-      - name: Publish the GitHub Release if not published yet
+      # Every version from 0.3.0 on, oldest first, not only the top one: if an
+      # earlier run failed and another release merged since, this run catches
+      # up. Each tag and Release is created only if missing, so a merge with no
+      # new version, or a re-run after a partial failure, is safe.
+      - name: Tag and publish every version still missing
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.notes.outputs.version }}
         run: |
-          tag="v${VERSION}"
-          if gh release view "${tag}" > /dev/null 2>&1; then
-            echo "Release ${tag} already exists."
-          else
-            gh release create "${tag}" --verify-tag --title "${tag}" --notes-file "${RUNNER_TEMP}/notes.md"
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          versions="$(python3 .github/scripts/release_check.py versions CHANGELOG.md)"
+          newest="$(printf '%s\n' "${versions}" | tail -n 1)"
+          for version in ${versions}; do
+            tag="v${version}"
+            notes="${RUNNER_TEMP}/notes-${version}.md"
+            python3 .github/scripts/release_check.py notes CHANGELOG.md "${version}" "${notes}"
+
+            if git rev-parse --quiet --verify "refs/tags/${tag}" > /dev/null; then
+              echo "Tag ${tag} already exists."
+            else
+              # Tag the commit that added this version's heading line (its
+              # release PR's squash commit), not GITHUB_SHA, which may be a
+              # later merge. -G matches the heading line itself, so a later
+              # entry that merely quotes it doesn't count.
+              commit="$(git log -1 --format=%H -G"^## \[${version//./\\.}\] - " -- CHANGELOG.md)"
+              if [ -z "${commit}" ]; then
+                echo "No commit adds the '## [${version}]' heading to CHANGELOG.md." >&2
+                exit 1
+              fi
+              # verbatim: the default cleanup strips every line starting with
+              # "#", which would drop the section's ### headings.
+              git tag --annotate --cleanup=verbatim "${tag}" --file "${notes}" "${commit}"
+              git push origin "refs/tags/${tag}"
+            fi
+
+            if gh release view "${tag}" > /dev/null 2>&1; then
+              echo "Release ${tag} already exists."
+            else
+              # Only the newest version is marked Latest; an older one being
+              # caught up must not take that from it.
+              latest=false
+              [ "${version}" = "${newest}" ] && latest=true
+              gh release create "${tag}" --verify-tag --title "${tag}" --notes-file "${notes}" --latest="${latest}"
+            fi
+          done

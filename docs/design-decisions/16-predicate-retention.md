@@ -123,8 +123,8 @@ facility.") toward a redundant pair with a fuller version of itself
 in the other, which the prompt forbids. This containment is silent
 (the ticket-007 WARNING fires only on byte-identical text) and costs a
 second `claim_id`, shortlist and evidence run downstream; a candidate
-for EV-6's always-on check. In-context reliability rides on
-EV-7's granularity ceiling staying open.
+for EV-6's always-on check. In-context reliability depends on
+the granularity ceiling (EV-7).
 
 **Companion nets.** EV-6 (an always-on unmatchable-claim
 check that will own the standalone-evaluative sentence that keeps its

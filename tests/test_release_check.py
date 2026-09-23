@@ -196,6 +196,34 @@ def test_lines_inside_a_fenced_code_block_are_not_headings():
     assert check(with_release("## [0.3.0] - 2026-09-23", body=body)) == []
 
 
+def test_a_fenced_heading_example_does_not_end_the_section():
+    # The key after the fence must still count, and the notes must include it.
+    body = "### Added\n\n- Documents the heading format:\n\n  ```markdown\n  ## [x.y.z] - DATE\n  ```\n\n  (EV-11)\n"
+    head = with_release("## [0.3.0] - 2026-09-23", body=body)
+    assert check(head) == []
+    assert rc.release_notes(head, "0.3.0").endswith("(EV-11)")
+
+
+@pytest.mark.parametrize("block", ["````\n```\n````", "```\n~~~\n```"])
+def test_a_fence_closes_only_on_the_same_character_and_at_least_its_length(block):
+    # A 4-backtick block showing a 3-backtick line; a ~~~ line inside a ``` block.
+    # Three fence-like lines each: naive toggling ends inside a fence and drops
+    # every heading below.
+    body = NEW_BODY + "\n" + block + "\n"
+    assert check(with_release("## [0.3.0] - 2026-09-23", body=body)) == []
+
+
+def test_list_lines_inside_a_fence_are_not_entries():
+    base = BASE.replace("- Something older. (EV-1)\n", "- Something older. (EV-1)\n\n  ```yaml\n  - a\n  ```\n")
+    head = base.replace("  - a\n", "  - a\n  - b\n").replace("```yaml\n  - a", "```yaml\n- a")
+    assert check(head, title="EV-3: Tidy", labels=["no-release"], base=base) == []
+
+
+def test_a_wrapped_line_starting_with_hash_number_is_not_a_heading():
+    body = "### Fixed\n\n- Fixes the crash reported in pull request\n  #3 when a file is empty. (EV-11)\n"
+    assert check(with_release("## [0.3.0] - 2026-09-23", body=body)) == []
+
+
 def test_version_with_a_leading_zero_is_reported():
     # 0.03.0 would otherwise count as 0.3.0 and be tagged v0.3.0.
     problems = check(with_release("## [0.03.0] - 2026-09-23"))
@@ -229,15 +257,29 @@ def test_release_pr_that_removes_an_older_entry_fails():
 # --- notes for the Publish release workflow ------------------------------
 
 
-def test_top_release_returns_the_version_and_its_section():
-    version, section = rc.top_release(with_release("## [0.3.0] - 2026-09-23"))
-    assert version == "0.3.0"
-    assert section == "### Added\n\n- A new thing. (EV-11)"
+# 0.4.0 above 0.3.0 above the untagged 0.2.0 and 0.1.0.
+TWO_RELEASES = with_release("## [0.3.0] - 2026-09-23").replace(
+    "## [0.3.0]", "## [0.4.0] - 2026-10-01\n\n- Later. (EV-12)\n\n## [0.3.0]"
+)
 
 
-def test_top_release_without_any_heading_raises():
+def test_tagged_versions_lists_0_3_0_and_later_oldest_first():
+    assert rc.tagged_versions(TWO_RELEASES) == ["0.3.0", "0.4.0"]
+
+
+def test_tagged_versions_is_empty_before_0_3_0():
+    assert rc.tagged_versions(BASE) == []
+
+
+def test_release_notes_returns_that_version_s_section():
+    text = with_release("## [0.3.0] - 2026-09-23")
+    assert rc.release_notes(text, "0.3.0") == "### Added\n\n- A new thing. (EV-11)"
+    assert rc.release_notes(text, "0.2.0") == "### Added\n\n- Something older. (EV-1)"
+
+
+def test_release_notes_for_a_missing_version_raises():
     with pytest.raises(ValueError):
-        rc.top_release("# Changelog\n\n## [Unreleased]\n")
+        rc.release_notes(BASE, "0.3.0")
 
 
 # --- the command line ----------------------------------------------------
@@ -269,12 +311,18 @@ def test_main_check_treats_missing_labels_as_none(tmp_path, monkeypatch):
     assert rc.main(["check", str(base), str(head)]) == 0
 
 
-def test_main_notes_prints_the_version_and_writes_the_section(tmp_path, capsys):
+def test_main_versions_prints_one_version_per_line(tmp_path, capsys):
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(TWO_RELEASES)
+    assert rc.main(["versions", str(changelog)]) == 0
+    assert capsys.readouterr().out == "0.3.0\n0.4.0\n"
+
+
+def test_main_notes_writes_that_version_s_section(tmp_path):
     changelog = tmp_path / "CHANGELOG.md"
     out = tmp_path / "notes.md"
     changelog.write_text(with_release("## [0.3.0] - 2026-09-23"))
-    assert rc.main(["notes", str(changelog), str(out)]) == 0
-    assert capsys.readouterr().out.strip() == "0.3.0"
+    assert rc.main(["notes", str(changelog), "0.3.0", str(out)]) == 0
     assert out.read_text() == "### Added\n\n- A new thing. (EV-11)\n"
 
 

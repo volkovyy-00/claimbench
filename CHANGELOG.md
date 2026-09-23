@@ -17,14 +17,10 @@ minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 
 ### Added
 
-- Each pull request with a user-visible change is now its own release: it
-  adds its version heading to this file, and merging it tags `vx.y.z` and
-  publishes a GitHub Release automatically. The `## [Unreleased]` section
-  is gone. A new required `Release` check makes every PR title start with
-  its Jira key and every release PR's version one step above the last; the
-  `no-release` and `no-jira` labels exempt a PR with no user-visible change
-  or no ticket. `CONTRIBUTING.md` describes the process and which file owns
-  which kind of project knowledge. (EV-11)
+- Every version from 0.3.0 on is tagged `vx.y.z` and published as a
+  GitHub Release. Each pull request with a user-visible change is now its
+  own release, so this file no longer has an `## [Unreleased]` section.
+  (EV-11)
 
 - CI on every pull request and push to `main`: Ruff (lint), basedpyright
   (type check), the pytest suite, and SonarCloud analysis, each a separate
