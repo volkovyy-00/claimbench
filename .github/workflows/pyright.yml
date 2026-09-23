@@ -1,0 +1,35 @@
+name: Type Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pyright:
+    name: Pyright
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # basedpyright: pyright plus a baseline of the errors that existed when
+      # this check landed (.basedpyright/baseline.json), so only new errors
+      # fail. `lock` reads the baseline and never rewrites it here.
+      - name: Pyright
+        run: basedpyright --baselinemode=lock

@@ -1,0 +1,12 @@
+// basedpyright settings (a pyright fork: the same checker, plus a baseline).
+// `basedpyright` locally runs exactly what CI runs.
+//
+// Only the four pipeline modules; tests/ is not type-checked yet.
+// .basedpyright/baseline.json lists the 91 errors that existed on 2026-09-23,
+// so only NEW errors fail. Fixing old ones shrinks it: a local run rewrites
+// the file, commit that change (follow-up ticket to EV-3).
+{
+  "include": ["golden_set_pipeline.py", "tag_pipeline.py", "retrieval_pipeline.py", "eval_pipeline.py"],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "standard"
+}

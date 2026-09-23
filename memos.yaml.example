@@ -1,0 +1,58 @@
+# This file is Stage 1 (`extract`) input. `extract` reads it and writes one
+# claims/<memo_id>.md per memo; `build` then reads only those claims files,
+# never this file. See docs/pipeline-overview.md.
+#
+# Memos to build the golden set for. Each memo needs:
+#   id             - a stable identifier, carried through to every output row
+#   source_folder  - a folder of PDFs; every PDF in it applies to every
+#                    section below (no per-section source scoping)
+#   sections       - a mapping of section name -> section text (the
+#                    human-written memo text for that section). If a
+#                    section has headings that name things its claims
+#                    refer to, use a literal block scalar (`|`) or keep a
+#                    blank line after each heading - a folded `>` scalar
+#                    with no blank line runs the heading into the next
+#                    sentence.
+#
+# A memo may also set any of these three optional tuning knobs, which
+# apply to that memo's sections only. Omit one and it uses whatever the
+# run passes (today: 0.3 / 5 / 40). Corpora seen so far range from about
+# 1,000 to 6-7,000 chunks per memo, which is too wide a spread for one
+# setting to suit every memo - a bigger corpus generally wants a higher
+# relative_threshold and a smaller batch_size to keep cost and runtime
+# down:
+#   relative_threshold - 0.0 to 1.0; how close to the best-matching
+#                        snippet a snippet must score to be checked at
+#                        all. Higher = fewer candidates, cheaper run.
+#   min_candidates     - integer >= 0; how many snippets to check even
+#                        when almost nothing clears the threshold.
+#   batch_size         - integer >= 1; how many snippets go to the AI in
+#                        one request.
+#
+# Anything else written on a memo is an error, not ignored - so a typo
+# like `batchsize: 25` is reported instead of silently doing nothing.
+# Use a `#` comment for per-memo notes.
+#
+# This is a template. Copy it to `memos.yaml` (gitignored) and put the
+# real memo text there - `memos.yaml` holds client memo sections, which
+# are the deliverable and not committed, same as `.env` and `sources/`.
+# The example below is made up (a fictional company, Acme); put its PDFs,
+# or your own, in the source_folder to try the pipeline end to end.
+
+memos:
+  - id: MEMO-001
+    source_folder: sources/acme
+    sections:
+      Business Profile: >
+        Acme is the largest listed widget maker in Europe by plant value.
+        Most of its sales are to carmakers, so demand was under significant
+        pressure until Dec'23; it has stabilised as of Dec'24 versus Dec'23.
+      Ownership: >
+        Acme is a listed German industrial group with a market cap of
+        EUR 4.2bn. Its free float is 60.5% of total outstanding shares.
+
+    # Optional per-memo tuning (see the header). A larger corpus usually
+    # wants a higher relative_threshold and smaller batch_size:
+    # relative_threshold: 0.35
+    # min_candidates: 8
+    # batch_size: 25

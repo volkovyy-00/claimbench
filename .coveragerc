@@ -1,0 +1,8 @@
+# Coverage for the SonarCloud job (pytest --cov --cov-report=xml).
+[run]
+source = .
+omit = tests/*
+branch = True
+# Repo-relative paths in coverage.xml; with absolute ones SonarCloud matches
+# no file and reports 0% coverage on new code.
+relative_files = True

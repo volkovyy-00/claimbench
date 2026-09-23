@@ -1,0 +1,40 @@
+# Template for retrieval/<memo_id>.yaml — the phrase config for
+# retrieval_pipeline.py. Copy to retrieval/<memo_id>.yaml (gitignored) and
+# edit. The filename stem MUST equal memo_id.
+#
+# HOW THIS IS USED
+#   `python retrieval_pipeline.py embed`    chunks + embeds source_folder's PDFs
+#   `python retrieval_pipeline.py retrieve` runs every phrase below as an
+#     independent top-k cosine query; results are unioned per section.
+#
+# WRITING PHRASES ("hypothetical question" method)
+#   Write each phrase the way a *search query* for that section's facts would
+#   read — a question, or a dense keyword phrase. 5-10 per section works well
+#   (1-20 allowed). Each phrase retrieves its own top chunks; phrases that
+#   overlap in what they retrieve is the good case.
+#
+# SECTION NAMES AND THE FUTURE EVAL
+#   A later eval harness joins these results to the golden set on
+#   (memo_id, section). For that join to work, these section names should
+#   match the section names in memos.yaml / claims/<memo_id>.md EXACTLY
+#   (including case). `retrieve` logs a soft WARNING if claims/<memo_id>.md
+#   exists and the names don't line up — it does not enforce it.
+#   Note: phrases currently carry only *section-level* ground truth, so the
+#   eval treats them as section-covering queries, not claim-targeted ones.
+
+memo_id: MEMO-001
+source_folder: sources/acme
+sections:
+  Business Profile:
+    - "Does the company has stable assets in 2024?"
+    - "What is the company's core business and asset portfolio?"
+    - "How large is the company by market capitalisation and market ranking?"
+    - "physical occupancy rate of the retail portfolio"
+    - "Which countries and regions does the company operate in?"
+    - "development pipeline and committed investment projects"
+  Ownership:
+    - "Who are the largest shareholders and what stakes do they hold?"
+    - "free float and index membership"
+    - "Is there a controlling shareholder or concert party?"
+    - "recent changes to the shareholder register"
+    - "board representation of major shareholders"

@@ -1,0 +1,9 @@
+# Development and CI tools, on top of requirements.txt:
+#   pip install -r requirements-dev.txt
+# Pinned exactly (unlike requirements.txt) so a local run and CI apply the
+# same rules: a newer checker can report different errors, which would
+# invalidate the committed .basedpyright/baseline.json.
+-r requirements.txt
+ruff==0.16.8
+basedpyright==1.40.1
+pytest-cov==7.1.0

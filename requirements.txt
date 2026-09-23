@@ -1,0 +1,12 @@
+pandas
+numpy
+requests
+openpyxl
+pyarrow
+python-dotenv
+jupytext
+rank_bm25
+pypdf
+pdfplumber
+PyYAML
+pytest

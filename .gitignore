@@ -1,0 +1,45 @@
+.venv/
+.env
+__pycache__/
+*.parquet
+*.xlsx
+.claude/
+sources/
+docs/tickets/
+docs/superpowers/
+.pytest_cache/
+.DS_Store
+
+# Real memo config - holds client memo text, not committed. Copy from memos.yaml.example.
+memos.yaml
+
+# Real claims files (Stage 1 output / hand-authored input) - holds client
+# claim text, not committed. See claims.example.md.
+claims/
+
+# Retrieval prototype (retrieval_pipeline.py): per-memo phrase configs and
+# the embedding cache. Same treatment as claims/ — holds client-derived
+# text/vectors. retrieval_results.parquet/.xlsx are already covered by the
+# *.parquet / *.xlsx globs above.
+retrieval/
+retrieval_index/
+scratchpad/
+
+# tag_pipeline.py review sheets (client claim and source text). *.xlsx already
+# covers the sheets; the directories also cover a crash-left temp file
+# (`<name>.xlsx.<random>.tmp` from draft, `<name>.<random>.tmp.xlsx` from finalize).
+review/
+reviewed/
+
+# eval_pipeline.py run records (client claim text and scores). claim_queries.parquet
+# (retrieval_pipeline.py recheck) is covered by *.parquet above.
+eval_runs/
+
+# Local-only notes: real names behind the committed placeholders (see CLAUDE.md).
+CLAUDE.local.md
+
+# CI tool caches and coverage output
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/

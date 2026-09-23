@@ -1,0 +1,43 @@
+name: SonarCloud Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  sonarcloud:
+    name: SonarCloud Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # full history: Sonar needs it to tell new code from old
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # Coverage must be produced in this job, before the scan: without it
+      # SonarCloud reports 0% coverage on new code. .coveragerc keeps the
+      # paths in coverage.xml repo-relative so Sonar can match them.
+      - name: Run tests with coverage
+        run: pytest -q --cov --cov-report=xml
+
+      # Fails this job when the quality gate fails
+      # (sonar.qualitygate.wait in sonar-project.properties).
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
