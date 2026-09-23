@@ -81,9 +81,10 @@ def test_changing_an_existing_heading_fails():
     assert any("exactly one new version heading" in p for p in check(head))
 
 
-def test_date_that_is_not_a_real_date_fails():
+def test_date_that_is_not_a_real_date_fails_with_only_that_message():
+    # Not also "adds exactly one new version heading ... add the no-release label".
     problems = check(with_release("## [0.3.0] - 2026-02-30"))
-    assert any("2026-02-30 is not a real date" in p for p in problems)
+    assert problems == ["CHANGELOG.md line 5: 2026-02-30 is not a real date."]
 
 
 def test_date_before_the_previous_release_fails():
@@ -168,15 +169,31 @@ def test_every_problem_is_reported_at_once():
 # --- malformed headings --------------------------------------------------
 
 
-@pytest.mark.parametrize("line", ["## 0.3.0 - 2026-09-23", "##[0.3.0] - 2026-09-23", "## v0.3.0 - 2026-09-23"])
-def test_heading_without_the_bracket_form_is_reported(line):
+@pytest.mark.parametrize(
+    "line",
+    [
+        "## 0.3.0 - 2026-09-23",
+        "##[0.3.0] - 2026-09-23",
+        "## v0.3.0 - 2026-09-23",
+        "## Unreleased",
+        " ## [0.3.0] - 2026-09-23",
+        "### 0.3.0",
+    ],
+)
+def test_heading_that_is_not_a_proper_version_heading_is_reported(line):
     # Before, only `## [` lines were looked at, so a no-release PR adding one of these passed.
     head = BASE.replace("## [0.2.0]", f"{line}\n\n## [0.2.0]")
     problems = check(head, labels=["no-release"])
     assert problems == [
-        f"CHANGELOG.md line 5: {line!r} is not a `## [x.y.z] - YYYY-MM-DD` heading. There is no "
-        "`## [Unreleased]` section: each release PR adds its own version heading (CONTRIBUTING.md, section 3)."
+        f"CHANGELOG.md line 5: {line!r} is not a `## [x.y.z] - YYYY-MM-DD` heading. Its `##` headings "
+        "are version headings only, and there is no `## [Unreleased]` section: each release PR adds its "
+        "own version heading (CONTRIBUTING.md, section 3)."
     ]
+
+
+def test_lines_inside_a_fenced_code_block_are_not_headings():
+    body = NEW_BODY + "\n```bash\n## step one\n# 1. run extract\n```\n"
+    assert check(with_release("## [0.3.0] - 2026-09-23", body=body)) == []
 
 
 def test_version_with_a_leading_zero_is_reported():

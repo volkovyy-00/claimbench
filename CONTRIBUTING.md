@@ -47,7 +47,8 @@ flag, output column, file format, config key, or pipeline behaviour.
   `### Deprecated`, `### Removed`, `### Fixed`, `### Security`. End each
   entry with its ticket key, e.g. `(EV-12)`.
 - Released entries are never added or removed; the Release check counts
-  each released section's entries. Fixing a reference inside one is fine.
+  each released section's entries (only the count, so it can't tell a
+  swapped entry from a reworded one). Fixing a reference inside one is fine.
 
 **No: the PR is not a release.** CI, tests, dev-only dependencies, and
 internal docs such as this file or `CLAUDE.md` don't need a version. Add the
@@ -78,7 +79,9 @@ version.
 
 - **After the merge,** the `Publish release` workflow tags `v<version>` and
   publishes a GitHub Release from that changelog section. Nothing to do by
-  hand. If it fails, re-run it: it only creates what is missing.
+  hand. If it fails, re-run it before merging another release PR: it only
+  creates what is missing, but each run publishes only the top version, so
+  a later release would leave this one untagged.
 - **Two release PRs open at once** both claim the next version. After the
   first merges, the second conflicts on `CHANGELOG.md`. Update its branch
   from `main` and move its entry to the next version up.

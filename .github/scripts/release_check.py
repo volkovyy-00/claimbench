@@ -16,10 +16,11 @@ The rules (CONTRIBUTING.md, sections 3 and 4):
 
 - The PR title starts with a Jira key, `EV-<n>: `, unless the PR carries the
   `no-jira` label.
-- Every line of the PR's CHANGELOG.md that looks like a version heading
-  (starts `## [`, or is a `#` heading starting with a version number, such
-  as `## 0.4.0`) is exactly `## [x.y.z] - YYYY-MM-DD`: no leading zeros in
-  x, y or z, and a real calendar date. `## [Unreleased]` is gone for good.
+- Every `##` heading in the PR's CHANGELOG.md (indented up to 3 spaces, as
+  Markdown allows), and every `#` heading that starts with a version number
+  (e.g. `### 0.4.0`), is exactly `## [x.y.z] - YYYY-MM-DD`: no leading zeros
+  in x, y or z, and a real calendar date. Lines inside fenced code blocks
+  are not headings. `## [Unreleased]` is gone for good.
   Only the PR's own file is held to this; the base branch's file is read
   leniently, because the first PR under these rules still had
   `## [Unreleased]` in its base.
@@ -33,7 +34,12 @@ The rules (CONTRIBUTING.md, sections 3 and 4):
   otherwise be rejected.
 - Every section the base branch has already released keeps its number of
   `- ` entries: released entries are never added or removed. Rewording one,
-  e.g. to fix a reference, is fine.
+  e.g. to fix a reference, is fine. Only the count is compared, so swapping
+  one entry for another is not caught; review is the net for that.
+- A malformed heading is reported on its own: while any heading line is
+  wrong, the other CHANGELOG.md rules are not checked, because the
+  malformed line may be the intended new version and comparing without it
+  would only add misleading messages.
 - A PR with the `no-release` label leaves every version heading (version and
   date) exactly as the base has it. Text inside released sections may still
   change, e.g. a typo or reference fix.
@@ -54,9 +60,17 @@ NO_JIRA = "no-jira"
 _HEADING_RE = re.compile(
     r"^## \[(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\] - (\d{4}-\d{2}-\d{2})$"
 )
-# A line meant as a version heading but maybe malformed: `## [`, or any
-# `#` heading whose text starts with a version number (`## 0.4.0`, `##[0.4.0]`).
-_HEADING_LIKE_RE = re.compile(r"^(## \[|#{1,6}\s*\[?v?\d)")
+# A line that must be a version heading: any `##` heading (not `###`), or any
+# `#` heading whose text starts with a version number, indented up to 3
+# spaces as Markdown allows (`## Unreleased`, ` ## [0.4.0]`, `##[0.4.0]`).
+_HEADING_LIKE_RE = re.compile(r"^ {0,3}(##(?!#)|#{1,6}\s*\[?v?\d)")
+# The opening or closing line of a fenced code block.
+_FENCE_RE = re.compile(r"^ {0,3}(```|~~~)")
+
+
+def _format_version(version: tuple[int, int, int]) -> str:
+    """`(0, 3, 0)` as `0.3.0`, the spelling used in headings and tag names."""
+    return "{}.{}.{}".format(*version)
 _TITLE_RE = re.compile(r"^(EV-\d+): \S")
 
 
@@ -73,29 +87,34 @@ class Heading:
 
     @property
     def label(self) -> str:
-        return "{}.{}.{}".format(*self.version)
+        return _format_version(self.version)
 
 
 def parse_headings(text: str) -> tuple[list[Heading], list[str]]:
     """Return every valid version heading in `text`, top first, plus a
     problem message for each heading-like line (`_HEADING_LIKE_RE`) that is
-    not one.
+    not one. Lines inside fenced code blocks are skipped.
 
     A line that is not a version heading, or whose date is not a real
     calendar date, is reported and left out of the returned headings.
     """
     headings: list[Heading] = []
     problems: list[str] = []
+    in_fence = False
     for number, line in enumerate(text.splitlines(), start=1):
-        if not _HEADING_LIKE_RE.match(line):
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence or not _HEADING_LIKE_RE.match(line):
             continue
         match = _HEADING_RE.match(line)
         if match is None:
             problems.append(
                 f"CHANGELOG.md line {number}: {line!r} is not a "
-                "`## [x.y.z] - YYYY-MM-DD` heading. There is no "
-                "`## [Unreleased]` section: each release PR adds its own "
-                "version heading (CONTRIBUTING.md, section 3)."
+                "`## [x.y.z] - YYYY-MM-DD` heading. Its `##` headings are "
+                "version headings only, and there is no `## [Unreleased]` "
+                "section: each release PR adds its own version heading "
+                "(CONTRIBUTING.md, section 3)."
             )
             continue
         try:
@@ -178,6 +197,10 @@ def check_pr(title: str, labels: list[str], base_text: str, head_text: str) -> l
     base, _ = parse_headings(base_text)
     head, head_problems = parse_headings(head_text)
     problems.extend(head_problems)
+    if head_problems:
+        # The malformed line may be the intended new heading; comparing the
+        # headings without it would only add misleading messages.
+        return problems
 
     base_ids = [(h.version, h.date) for h in base]
     head_ids = [(h.version, h.date) for h in head]
@@ -208,7 +231,7 @@ def check_pr(title: str, labels: list[str], base_text: str, head_text: str) -> l
         top = base[0]
         allowed = next_versions(top.version)
         if new.version not in allowed:
-            choices = ", ".join("{}.{}.{}".format(*v) for v in allowed)
+            choices = ", ".join(_format_version(v) for v in allowed)
             problems.append(
                 f"Version {new.label} is not one step above {top.label}; "
                 f"use one of {choices}."

@@ -8,7 +8,9 @@ no package to publish: every pull request with a user-visible change is a
 release. It adds its own `## [x.y.z] - DATE` heading here, and merging it
 tags `vx.y.z` and publishes a GitHub Release automatically. Each entry
 cites its Jira ticket (`EV-N`); entries written before the move to Jira,
-including most of 0.3.0, cite none. Pre-1.0 — the CLI/API may break between
+including most of 0.3.0, cite none. Tags start at `v0.3.0`: 0.1.0 and
+0.2.0 were released before this repository was published and have no tags
+here. Pre-1.0 — the CLI/API may break between
 minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 
 ## [0.3.0] - 2026-09-23

@@ -2,6 +2,9 @@ name: Release check
 
 on:
   pull_request:
+    # Only main requires this check; a stacked PR into a feature branch is
+    # not a release of its own.
+    branches: [main]
     # edited/labeled/unlabeled are not in the default set: without them a title
     # or label fix would not re-run the check.
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
