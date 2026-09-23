@@ -1483,5 +1483,4 @@ if __name__ == "__main__":
 
 
 # --- EV-3 smoke test: one violation per gate. This PR is never merged. ---
-_SMOKE_NOT_AN_INT: int = "not an int"  # pyright: reportAssignmentType
 _SMOKE_DIGEST = hashlib.md5(b"smoke").hexdigest()  # SonarCloud: weak-hash security hotspot
