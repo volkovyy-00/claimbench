@@ -656,7 +656,7 @@ def extract_atomic_claims(section_text: str, llm_client: LLMClient) -> list[str]
     own claim under the attached-attribute rule. It does not do this
     when the source sentence asserted nothing more than that bare naming
     ("The company is well run.") — that claim is left unchanged; flagging
-    it is ticket 010's job (an always-on per-section check, not yet built).
+    it is EV-6's job (an always-on per-section check, not yet built).
     As with the pointer
     and connecting-word substitutions, this copies wording already in the
     section; it never invents a detail to make a vague claim concrete. See

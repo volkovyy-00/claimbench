@@ -165,7 +165,7 @@ advisory).
 
 **Changing a claim after drafting** loses the memo's review: answers are
 keyed by `claim_id`, and carrying them across a rebuild is unsafe because
-`build` re-rolls evidence for unchanged claims too (decision 9). Ticket 014
+`build` re-rolls evidence for unchanged claims too (decision 9). EV-9
 tracks it.
 
 ## Why not rows — v1 (2026-09-10 → removed 2026-09-14)

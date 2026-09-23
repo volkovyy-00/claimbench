@@ -34,9 +34,9 @@ below is a condensed rule + current residual + pointer (currently 5, 7,
 9, 11, 12, 13, 14, 15, 16, 17, 18) — split out so this file stays loadable every session without
 carrying every design decision's complete history; the numbered entry
 below is authoritative on the rule itself, the linked file is the "why"
-in full. `docs/tickets/` is a gitignored, local backlog of scoped change
-proposals written against a specific commit — check it for open work
-before assuming a design decision above is final.
+in full. Open work — including the fix for any residual named below — is
+tracked in the Jira project `EV`; `CONTRIBUTING.md` says which file owns
+which kind of project knowledge.
 `memos.yaml.example` and `claims.example.md` (both committed, repo root)
 are the templates for `extract`'s input and `build`'s input respectively
 (design decision 17) — copy and edit rather than write either format from
@@ -44,17 +44,12 @@ scratch.
 
 This is a public GitHub repository (`origin` = `volkovyy-00/claimbench`,
 started 2026-09-23 from one scrubbed commit). `main` is protected: changes
-go through a PR that passes the four CI checks (see "Testing convention").
-The pre-publication history is private (see `CLAUDE.local.md`); never
-push it here. `CHANGELOG.md` uses "Keep a Changelog" structure with SemVer
-`## [x.y.z] - DATE` headings. There's no package to publish, so a
-"release" is just that heading plus a matching annotated `vx.y.z` git
-tag; pre-1.0, so the CLI/API can still break between minors. Add an entry
-under `## [Unreleased]` for any user-visible change, and roll the
-accumulated entries into a version heading when you cut a release (no
-formal cadence triggers this — do it when the batch is worth a version).
-No tags yet in this repository (earlier `v0.1.0`/`v0.2.0` live in the
-private history). No `CONTRIBUTING.md`. `README.md`
+go through a PR that passes the five required checks (see "Testing
+convention") and follows `CONTRIBUTING.md`: the Jira key first in the PR
+title, a `CHANGELOG.md` version heading in every user-visible PR, and a
+tag plus GitHub Release created automatically on merge. The
+pre-publication history is private (see `CLAUDE.local.md`); never push it
+here. `README.md`
 presents the project publicly as **ClaimBench** (MIT, `LICENSE`): install,
 the six-step usage walkthrough, a command/config/layout reference, and
 nothing past that. It must stay neutral (no client or company references).
@@ -231,10 +226,9 @@ Not wired into `extract`/`build`.
 - **Measured by `eval_pipeline.py`** (section below). Keep `_RESULTS_COLUMNS`
   and `_CLAIM_QUERY_COLUMNS` stable — the eval imports and checks them.
 - Tests: `tests/test_retrieval_pipeline.py` (mocked). Design:
-  `docs/superpowers/specs/2026-09-07-local-retrieval-design.md` — a
-  gitignored, local design doc (`docs/superpowers/` is not committed), same
-  treatment as `docs/tickets/`'s "gitignored, local backlog" — absent on a
-  fresh clone.
+  `docs/superpowers/specs/2026-09-07-local-retrieval-design.md`, in the
+  maintainer's private notes repo cloned at `docs/superpowers/` (see
+  `CONTRIBUTING.md`, section 7) — absent on a fresh clone of this repo alone.
 
 ## Evidence tagging (`tag_pipeline.py`) — sibling, not part of the pipeline
 
@@ -273,7 +267,7 @@ review between them (design decision 18):
 - **Order of work per memo:** audit or reword claims → `build` → `draft` →
   review → `finalize`. Rewording a claim after drafting changes its
   `claim_id`; `finalize` refuses and names the recovery (delete the sheet,
-  `build`, `draft`, review again — answers are not carried over; ticket 014).
+  `build`, `draft`, review again — answers are not carried over; EV-9).
 - **Sheets come back through Apple Numbers** with hidden columns made
   visible, so `finalize` maps by tab name and header and verifies hidden
   cells against the claims file and the PDFs (always reads them).
@@ -542,7 +536,7 @@ unreadable-file handling, `_error_row`'s overwritten `uuid4`) is in
    confidently-wrong evidence downstream (five unrelated metrics matched
    at medium/high confidence in the case that motivated this decision). No
    deterministic backstop for this (unlike a claim-initial pronoun).
-   Ticket 010 (open) is the designed net; `preview_claim_splits` (decision
+   EV-6 is the designed net; `preview_claim_splits` (decision
    14) the opt-in human catch. `_STRANDED_POINTING_WORD_RE` also still
    false-positives on an expletive "it" ("It is the policy of Borealis to
    offer...").
@@ -566,7 +560,7 @@ unreadable-file handling, `_error_row`'s overwritten `uuid4`) is in
    **Residual — BM25 is lexical.** A claim worded differently from its
    source ("headcount" vs. "employees") can leave the right chunk below any
    cutoff; lowering `relative_threshold` cannot recover a zero-overlap
-   miss. Open ticket 006 tracks a keyword-expansion mitigation.
+   miss. EV-5 tracks a keyword-expansion mitigation.
 
    Full text: `docs/design-decisions/07-bm25-no-candidate-cap.md`.
 
@@ -649,7 +643,7 @@ unreadable-file handling, `_error_row`'s overwritten `uuid4`) is in
    runtime checks 30+ minutes into a run (YAML traps handled:
    `min_candidates: yes` is a `bool`, i.e. an `int`; a valueless key parses
    as `None` → malformed). **Residual:** a *repeated* key is silently
-   last-wins in both `memos.yaml` and claims-file frontmatter; ticket 013
+   last-wins in both `memos.yaml` and claims-file frontmatter; EV-8
    tracks the fix.
 
    Full narrative — why a 5th element beat a `memo_overrides=` parameter,
@@ -685,7 +679,7 @@ unreadable-file handling, `_error_row`'s overwritten `uuid4`) is in
    on `import` and hangs the test suite. A toggle, not config surface.
    `tests/test_claim_split_preview.py` checks the guard structurally by
    parsing the source, since a live "does it prompt" test passes for the
-   wrong reason. Contrast ticket 010 (open): an always-on check *inside*
+   wrong reason. Contrast EV-6: an always-on check *inside*
    `build_golden_set_draft`.
 
    Full narrative: `docs/design-decisions/14-claim-split-preview.md`.
@@ -709,7 +703,7 @@ unreadable-file handling, `_error_row`'s overwritten `uuid4`) is in
    to hedging FX ($2bn notional) and …" mandate splits the dollar figure
    off as its own attached-attribute claim 1 run in 3 (closure rule vs.
    the attached-measured-attribute rule, decision 5) — logged, not chased.
-   Ticket 011 (open) separately owns a long-section granularity ceiling
+   EV-7 separately owns a long-section granularity ceiling
    that degrades this fix in-context (real sections dilute the signal a
    short isolated fixture doesn't).
 
@@ -744,8 +738,8 @@ unreadable-file handling, `_error_row`'s overwritten `uuid4`) is in
    also nudged toward a redundant pair with a fuller version of itself
    ("… a EUR 500m revolving credit facility.") 2/3 runs — silent
    containment the ticket-007 identical-text WARNING doesn't catch (it
-   only fires on byte-identical text), a candidate for ticket 010's
-   always-on check. In-context reliability rides on ticket 011's
+   only fires on byte-identical text), a candidate for EV-6's
+   always-on check. In-context reliability rides on EV-7's
    granularity ceiling (decision 15) staying open.
 
    Full narrative — the observed Borealis case, why this folds into
@@ -886,8 +880,14 @@ unreadable-file handling, `_error_row`'s overwritten `uuid4`) is in
 
 ## Testing convention
 
-**CI (EV-3):** four required checks on every PR to `main`, one workflow
-each in `.github/workflows/` — Ruff, Pyright, Pytest, SonarCloud Scan.
+**CI (EV-3, EV-11):** five required checks on every PR to `main`, one
+workflow each in `.github/workflows/` — Ruff, Pyright, Pytest, SonarCloud
+Scan, and Release (`release-check.yml`: the PR title's Jira key and the
+`CHANGELOG.md` version rules in `CONTRIBUTING.md`, run by
+`.github/scripts/release_check.py`, which Ruff lints but Sonar and
+basedpyright do not cover). A sixth workflow, `release.yml`, is not a
+check: on every push to `main` it tags and publishes the top changelog
+version if that is not done yet.
 Ruff runs only the E4/E7/E9/F rules and `ruff format` is not enforced
 (the broader set had a 91-finding backlog). The type check is
 **basedpyright** (a pyright fork) at `typeCheckingMode: standard` on the
@@ -905,8 +905,9 @@ gate. Widening Ruff, enforcing `ruff format`, type-checking `tests/`
 and clearing the baseline are follow-ups.
 
 `tests/` holds a committed `pytest` suite (run with `pytest` or `python -m
-pytest tests/` from the repo root; `pytest.ini` sets `pythonpath = .` so
-`import golden_set_pipeline as gsp` works without path hacks). This
+pytest tests/` from the repo root; `pytest.ini` sets `pythonpath = .
+.github/scripts` so `import golden_set_pipeline as gsp` and `import
+release_check` work without path hacks). This
 replaces the earlier practice of writing disposable, uncommitted mocked
 smoke-test scripts to a scratch directory outside the repo — those scripts
 still exist as the model for how to test a change here (mock
@@ -928,6 +929,7 @@ task); keep new tests in their own file, not a catch-all module:
   derivation `test_claim_id.py`; orchestrators + `__main__` `test_two_stage_pipeline.py`
 - decision 18 — `draft` `test_bundle_tagging.py`; `finalize` + eval contract `test_finalize.py`
 - `_widen_review_columns` — `test_review_columns.py`
+- `CONTRIBUTING.md`'s release rules (`.github/scripts/release_check.py`) — `test_release_check.py`
 - `retrieval_pipeline.py` — `test_retrieval_pipeline.py`
 - `eval_pipeline.py` — `test_eval_pipeline.py`
 
@@ -991,12 +993,15 @@ worked example.
 - `review/` (draft sheets the user edits — never overwritten by any
   command) and `reviewed/` (finalize output, regenerable) are gitignored:
   both hold client claim and source text.
-- `.superpowers/` is local working state, ignored per subfolder — each of
-  `tag-pipeline/` and `sdd/` has its own `*` `.gitignore`, so a new
-  subfolder needs one too: `tag-pipeline/HANDOFF.md` (read first when resuming tagging work),
-  the MEMO-004 acceptance scripts, answers and logs behind design decision
-  18. Not committed, absent on a fresh clone.
+- The MEMO-004 acceptance scripts, answers and logs behind design decision
+  18, with `HANDOFF.md` (read first when resuming tagging work), live in
+  the maintainer's private notes repo under `tag-pipeline-acceptance/`
+  (`CONTRIBUTING.md`, section 7); absent on a fresh clone of this repo alone.
+- `.superpowers/` is the superpowers skills' local working state, ignored
+  per subfolder: `sdd/` has its own `*` `.gitignore`, so a new subfolder
+  needs one too. Not committed.
 - This CLAUDE.md is the maintained reference for setup/testing/design
   decisions; update it (not a separate handoff doc) as the pipeline
-  evolves further. `CHANGELOG.md` is a separate, append-only history of
-  user-visible changes — don't let the two merge purposes.
+  evolves further. `CHANGELOG.md` is a separate history of user-visible
+  changes (entries are never removed; fixing a reference in one is fine)
+  — don't let the two merge purposes.

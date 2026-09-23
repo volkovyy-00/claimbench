@@ -1,6 +1,6 @@
 """
 Tests for preview_claim_splits and the RUN_CLAIM_SPLIT_PREVIEW opt-in cell
-(see docs/tickets/005-preview-claim-splits-before-evidence-run.md and
+(see local ticket 005, archived in the maintainer's notes repo, and
 CLAUDE.md design decision 14).
 
 These mock golden_set_pipeline.extract_atomic_claims (so no real LLM

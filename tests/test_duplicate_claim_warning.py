@@ -4,8 +4,8 @@ extract_atomic_claims: (a) the identical-claim-text warning (two or more
 returned claims with the same text after stripping), and (b) the boundary
 assertion that `_STRANDED_POINTING_WORD_RE` was NOT widened to bare
 definite noun phrases. The prompt-wording half of ticket 007 is verified
-by live runs, not here. See
-docs/tickets/007-resolve-pointing-words-in-claims.md and CLAUDE.md design
+by live runs, not here. See local ticket 007 (archived in the maintainer's
+notes repo) and CLAUDE.md design
 decision 5's "Pointing words beyond the subject" addendum.
 
 Mocks golden_set_pipeline.call_llm so no real LLM provider is contacted,

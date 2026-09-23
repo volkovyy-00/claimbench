@@ -38,6 +38,6 @@ env var. `tests/test_claim_split_preview.py` asserts the default is
 — structural, since a live "import and see if it prompts" test passes
 for the wrong reason whenever the stray LLM call fails.
 
-Contrast ticket 010 (open): an always-on, non-interactive check
+Contrast EV-6: an always-on, non-interactive check
 *inside* `build_golden_set_draft`'s unguarded gap between extraction
 and the evidence loop; decision 14 adds nothing to that function.

@@ -63,7 +63,7 @@ Other deliberate choices:
   YAML `#` comments cover per-memo annotation. (A *repeated* key is a
   separate, still-open gap — `yaml.safe_load` keeps the last value
   with no error, in both `memos.yaml` and a claims file's
-  frontmatter; ticket 013 tracks the fix.)
+  frontmatter; EV-8 tracks the fix.)
 - **Value ranges validated at config-load**, not left to the runtime
   checks in `bm25_threshold_shortlist`/`propose_evidence_from_chunks_batched`
   (which fire 30+ min and real spend into a batch; `relative_threshold`

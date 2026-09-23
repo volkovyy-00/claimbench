@@ -24,4 +24,4 @@ that states a fact in different words than the source PDF ("physical
 occupancy" vs. "occupancy", "headcount" vs. "employees") can leave the
 correct chunk scoring too low to ever clear the cutoff — lowering
 `relative_threshold` widens the net but cannot recover a zero-overlap
-miss. Open ticket 006 tracks a keyword-expansion mitigation.
+miss. EV-5 tracks a keyword-expansion mitigation.

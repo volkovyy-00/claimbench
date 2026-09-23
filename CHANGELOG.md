@@ -225,10 +225,9 @@ minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
   golden set and pre-eval — no recall/precision/MRR yet; the results table
   is shaped so a later harness can compute them. Template:
   `retrieval.example.yaml`. Design:
-  `docs/superpowers/specs/2026-09-07-local-retrieval-design.md` — a
-  gitignored, local design doc (`docs/superpowers/` is not committed), same
-  treatment as `docs/tickets/`'s "gitignored, local backlog"; not present on
-  a fresh clone. Live-verified against OpenRouter's `baai/bge-m3`
+  `docs/superpowers/specs/2026-09-07-local-retrieval-design.md` — in the
+  maintainer's private notes repo (`CONTRIBUTING.md`, section 7); not present
+  on a fresh clone. Live-verified against OpenRouter's `baai/bge-m3`
   (dim=1024, standard OpenAI-compatible `{"data": [{"embedding": [...],
   "index": ...}]}` response, no `input_type` body key needed) on a real
   822-chunk corpus: 9 phrases retrieved 20 rows each with
@@ -420,7 +419,7 @@ minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
   and a partial qualifier ("but to a lesser extent") now survives onto
   the claims for the members it modifies instead of being dropped. The
   rules are verified sentence by sentence; inside a large section the
-  output-volume ceiling tracked by ticket 011 can still coarsen these
+  output-volume ceiling tracked by EV-7 can still coarsen these
   shapes, so the motivating real section needs that fix as well.
   Some closed-list phrasings also still split on a minority of runs even
   in isolation, and the fix does not reach a sentence already degraded in
@@ -439,5 +438,5 @@ minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
   CLAUDE.md records the measured pre/post results and residuals: the
   attribution-dropping shatter is eliminated on isolated input, the
   in-context improvement is unproven (a re-run put the bare form back at
-  2/3 — ticket 011's granularity ceiling), and an isolated run-on still
+  2/3 — EV-7's granularity ceiling), and an isolated run-on still
   severs the drivers into thin verbs on a majority of runs.
