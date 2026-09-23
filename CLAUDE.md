@@ -42,15 +42,19 @@ are the templates for `extract`'s input and `build`'s input respectively
 (design decision 17) — copy and edit rather than write either format from
 scratch.
 
-This is a git repository (local only — no remote). Normal git workflow
-applies. `CHANGELOG.md` uses "Keep a Changelog" structure with SemVer
+This is a public GitHub repository (`origin` = `volkovyy-00/claimbench`,
+started 2026-09-23 from one scrubbed commit). `main` is protected: changes
+go through a PR that passes the four CI checks (see "Testing convention").
+The pre-publication history is private (see `CLAUDE.local.md`); never
+push it here. `CHANGELOG.md` uses "Keep a Changelog" structure with SemVer
 `## [x.y.z] - DATE` headings. There's no package to publish, so a
 "release" is just that heading plus a matching annotated `vx.y.z` git
 tag; pre-1.0, so the CLI/API can still break between minors. Add an entry
 under `## [Unreleased]` for any user-visible change, and roll the
 accumulated entries into a version heading when you cut a release (no
 formal cadence triggers this — do it when the batch is worth a version).
-Current tag: `v0.2.0` (2026-09-22). No `CONTRIBUTING.md`. `README.md`
+No tags yet in this repository (earlier `v0.1.0`/`v0.2.0` live in the
+private history). No `CONTRIBUTING.md`. `README.md`
 presents the project publicly as **ClaimBench** (MIT, `LICENSE`): install,
 the six-step usage walkthrough, a command/config/layout reference, and
 nothing past that. It must stay neutral (no client or company references).
