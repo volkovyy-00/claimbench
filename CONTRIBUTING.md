@@ -33,7 +33,7 @@ flag, output column, file format, config key, or pipeline behaviour.
 
 ### Added
 
-- `python eval_pipeline.py report` accepts `--k=10`. (EV-12)
+- `python eval_pipeline.py report` accepts `--format=csv`. (EV-42)
 ```
 
 - **Version:** one step above the current top heading. Before 1.0:
@@ -137,8 +137,9 @@ in the notes repository. Commit and push them there.
 
 ## 8. References from before 0.3.0
 
-Before 0.3.0 the backlog was a set of local files, cited as "local ticket
-NNN". Finished ones are archived in the notes repository's `tickets/`
+Before 0.3.0 the backlog was a set of local files, cited as "ticket NNN"
+or "local ticket NNN". Finished ones are archived in the notes
+repository's `tickets/`
 folder. The six still open moved to Jira on 2026-09-23:
 
 | Local | Jira |
