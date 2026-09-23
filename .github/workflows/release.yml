@@ -1,0 +1,64 @@
+name: Publish release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # push the tag and create the GitHub Release
+
+# One run at a time, in merge order. queue: max keeps every waiting run; the
+# default keeps only one and cancels the rest, which could skip a tag.
+concurrency:
+  group: release
+  queue: max
+
+jobs:
+  publish:
+    # Not "Release": that is the required PR check's name, and required checks
+    # match by name.
+    name: Publish release
+    runs-on: ubuntu-latest
+    steps:
+      # Unlike the check workflows, this one keeps the checkout's credentials
+      # (no persist-credentials: false): the tag push below needs them.
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # tags too, to see whether this version is tagged already
+
+      - name: Read the top CHANGELOG.md section
+        id: notes
+        run: |
+          version="$(python3 .github/scripts/release_check.py notes CHANGELOG.md "${RUNNER_TEMP}/notes.md")"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      # Each of the next two steps creates its thing only if it is missing, so a
+      # merge with no new version, or a re-run after a partial failure, is safe.
+      - name: Tag the release if not tagged yet
+        env:
+          VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          tag="v${VERSION}"
+          if git rev-parse --quiet --verify "refs/tags/${tag}" > /dev/null; then
+            echo "Tag ${tag} already exists."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            # verbatim: the default cleanup strips every line starting with "#",
+            # which would drop the section's ### headings from the tag message.
+            git tag --annotate --cleanup=verbatim "${tag}" --file "${RUNNER_TEMP}/notes.md" "${GITHUB_SHA}"
+            git push origin "refs/tags/${tag}"
+          fi
+
+      - name: Publish the GitHub Release if not published yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          tag="v${VERSION}"
+          if gh release view "${tag}" > /dev/null 2>&1; then
+            echo "Release ${tag} already exists."
+          else
+            gh release create "${tag}" --verify-tag --title "${tag}" --notes-file "${RUNNER_TEMP}/notes.md"
+          fi

@@ -1,0 +1,32 @@
+name: Release check
+
+on:
+  pull_request:
+    # edited/labeled/unlabeled are not in the default set: without them a title
+    # or label fix would not re-run the check.
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # all branches, so the base branch's CHANGELOG.md can be read
+
+      # The title and labels come in through env, never through ${{ }} inside
+      # the script: a PR title is untrusted input.
+      - name: Check the PR title and CHANGELOG.md (CONTRIBUTING.md, sections 3-4)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git show "origin/${BASE_REF}:CHANGELOG.md" > "${RUNNER_TEMP}/base-CHANGELOG.md"
+          python3 .github/scripts/release_check.py check "${RUNNER_TEMP}/base-CHANGELOG.md" CHANGELOG.md
