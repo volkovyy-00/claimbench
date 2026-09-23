@@ -4,22 +4,31 @@ All notable user-visible changes to this pipeline are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html). There is
-no package to publish: a "release" is a `## [x.y.z] - DATE` heading here
-plus a matching annotated `vx.y.z` git tag. Pre-1.0 — the CLI/API may
-break between minor versions. Add new entries under `## [Unreleased]` as
-you make changes; roll them into a version heading when you cut a
-release.
+no package to publish: every pull request with a user-visible change is a
+release. It adds its own `## [x.y.z] - DATE` heading here, and merging it
+tags `vx.y.z` and publishes a GitHub Release automatically. Each entry
+cites its Jira ticket (`EV-N`). Pre-1.0 — the CLI/API may break between
+minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 
-## [Unreleased]
+## [0.3.0] - 2026-09-23
 
 ### Added
+
+- Each pull request with a user-visible change is now its own release: it
+  adds its version heading to this file, and merging it tags `vx.y.z` and
+  publishes a GitHub Release automatically. The `## [Unreleased]` section
+  is gone. A new required `Release` check makes every PR title start with
+  its Jira key and every release PR's version one step above the last; the
+  `no-release` and `no-jira` labels exempt a PR with no user-visible change
+  or no ticket. `CONTRIBUTING.md` describes the process and which file owns
+  which kind of project knowledge. (EV-11)
 
 - CI on every pull request and push to `main`: Ruff (lint), basedpyright
   (type check), the pytest suite, and SonarCloud analysis, each a separate
   required check. `pip install -r requirements-dev.txt` installs the same
   pinned tools locally; `ruff check .` and `basedpyright` apply exactly the
   rules CI does. The type check fails only on errors newer than
-  `.basedpyright/baseline.json`.
+  `.basedpyright/baseline.json`. (EV-3)
 
 - `python retrieval_pipeline.py retrieve` now searches every phrase three
   ways and writes a `method` column: `dense` (as before), `keyword` (BM25)
