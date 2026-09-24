@@ -891,9 +891,12 @@ version from 0.3.0 on that is not done yet.
 Ruff runs only the E4/E7/E9/F rules and `ruff format` is not enforced
 (the broader set had a 91-finding backlog). The type check is
 **basedpyright** (a pyright fork) at `typeCheckingMode: standard` on the
-four modules, with `.basedpyright/baseline.json` holding the 23 errors
-left once `pandas-stubs` was added (EV-13): only new errors fail, and a
-local run that fixes old ones rewrites the file — commit it. CI runs
+four modules, with `.basedpyright/baseline.json` holding 1 error (EV-15
+cleared the other 22 left once `pandas-stubs` was added in EV-13):
+`tag_pipeline._plain`'s `value.item()` under `hasattr(value, "item")`, a
+guard pyright cannot narrow on, kept as written by the user's choice. Only
+new errors fail, and a local run that fixes old ones rewrites the file —
+commit it. CI runs
 `--baselinemode=lock` (reads, never writes). `pandas-stubs` is pinned
 like the checker: a new stubs release rewords errors, which then read as
 new, and a plain run refuses to rewrite the baseline — `basedpyright
@@ -909,8 +912,8 @@ import in `show_report` carries a
 config error, exit 3, while the output still reads "0 errors"). The
 SonarCloud job runs `pytest --cov` first (`.coveragerc`:
 `relative_files`, or Sonar sees 0% coverage) and waits for the quality
-gate. Widening Ruff, enforcing `ruff format`, type-checking `tests/`
-and clearing the baseline are follow-ups.
+gate. Widening Ruff, enforcing `ruff format` and type-checking `tests/`
+are follow-ups.
 
 `tests/` holds a committed `pytest` suite (run with `pytest` or `python -m
 pytest tests/` from the repo root; `pytest.ini` sets `pythonpath = .
