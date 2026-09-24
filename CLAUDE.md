@@ -73,7 +73,7 @@ decisions; don't let rationale or design detail creep into README.
 - `requirements.txt`: pandas, numpy, requests, openpyxl, pyarrow, python-dotenv,
   jupytext, rank_bm25, pypdf, pdfplumber, PyYAML, pytest.
   `requirements-dev.txt` adds the CI tools, pinned exactly: ruff,
-  basedpyright, pytest-cov.
+  basedpyright, pandas-stubs, pytest-cov.
 - `sources/` holds the source PDFs, one folder per memo — the convention
   `load_memo_sections_from_config` expects (see "Config-file loader"
   below), so a new memo's PDFs get their own subfolder too. Gitignored,
@@ -891,12 +891,20 @@ version from 0.3.0 on that is not done yet.
 Ruff runs only the E4/E7/E9/F rules and `ruff format` is not enforced
 (the broader set had a 91-finding backlog). The type check is
 **basedpyright** (a pyright fork) at `typeCheckingMode: standard` on the
-four modules, with `.basedpyright/baseline.json` holding the 91 errors
-that existed when it landed: only new errors fail, and a local run that
-fixes old ones rewrites the file — commit it. CI runs `--baselinemode=lock`
-(reads, never writes). An error that depends on what is installed can't
-be baselined (it vanishes locally): e.g. the optional `IPython` import in
-`show_report` carries a `# pyright: ignore[reportMissingImports]`.
+four modules, with `.basedpyright/baseline.json` holding the 23 errors
+left once `pandas-stubs` was added (EV-13): only new errors fail, and a
+local run that fixes old ones rewrites the file — commit it. CI runs
+`--baselinemode=lock` (reads, never writes). `pandas-stubs` is pinned
+like the checker: a new stubs release rewords errors, which then read as
+new, and a plain run refuses to rewrite the baseline — `basedpyright
+--writebaseline` does. The installed `pandas` version never changes the
+check (the stubs are not partial, so pyright reads no types from pandas
+itself; CI ran pandas 3.0.6 against the 3.0.5 stubs clean), so `pandas`
+stays unpinned. Bump the stubs when the code starts using pandas API
+newer than they describe. An error that depends on what is installed
+can't be baselined (it vanishes locally): e.g. the optional `IPython`
+import in `show_report` carries a
+`# pyright: ignore[reportMissingImports]`.
 `pyrightconfig.json` takes `//` comments, not a `"//"` key (that key is a
 config error, exit 3, while the output still reads "0 errors"). The
 SonarCloud job runs `pytest --cov` first (`.coveragerc`:
