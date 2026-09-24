@@ -172,7 +172,8 @@ def test_build_golden_set_draft_section_wide_totals(monkeypatch, caplog):
     section_lines = [m for m in info_messages if "2 claim(s)" in m and "dropped" in m]
     assert len(section_lines) == 1
     assert "1 dropped, 1 recovered" in section_lines[0]
-    assert "memo1" in section_lines[0] and "section1" in section_lines[0]
+    assert "memo1" in section_lines[0]
+    assert "section1" in section_lines[0]
 
 
 def test_build_golden_set_draft_failed_claim_contributes_no_counts(monkeypatch, caplog):

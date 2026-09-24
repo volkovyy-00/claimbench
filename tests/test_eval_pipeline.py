@@ -230,7 +230,8 @@ def test_blank_tags_halt_and_list_every_row(world):
         ep.load_ground_truth(MEMO)
     blank = [p for p in e.value.problems if "blank" in p]
     assert len(blank) == 2
-    assert "row 2" in blank[0] and "row 7" in blank[1]
+    assert "row 2" in blank[0]
+    assert "row 7" in blank[1]
 
 
 def test_unknown_tag_halts(world):
@@ -324,14 +325,16 @@ def test_index_parity_passes(world):
 
 def test_index_parity_missing_chunk_halts(world):
     _write_index({c: t for c, t in CHUNKS.items() if c != "d.pdf_3"})
+    gt = ep.load_ground_truth(MEMO)
     with pytest.raises(ep.EvalInputError, match="chunked differently"):
-        ep.check_index_parity(ep.load_ground_truth(MEMO))
+        ep.check_index_parity(gt)
 
 
 def test_index_parity_differing_text_halts(world):
     _write_index({**CHUNKS, "d.pdf_1": "Acme sells gadgets worldwide."})
+    gt = ep.load_ground_truth(MEMO)
     with pytest.raises(ep.EvalInputError, match="text differs"):
-        ep.check_index_parity(ep.load_ground_truth(MEMO))
+        ep.check_index_parity(gt)
 
 
 def test_index_parity_ignores_control_characters_the_sheet_cannot_hold(world):
@@ -341,8 +344,9 @@ def test_index_parity_ignores_control_characters_the_sheet_cannot_hold(world):
 
 def test_section_with_claims_but_no_dense_rows_halts(world):
     _write_results([r for r in _results_rows() if not (r["section"] == OWN and r["method"] == "dense")])
+    gt, results = ep.load_ground_truth(MEMO), ep.load_results()
     with pytest.raises(ep.EvalInputError, match="Ownership"):
-        ep.check_sections_retrieved(ep.load_ground_truth(MEMO), ep.load_results())
+        ep.check_sections_retrieved(gt, results)
 
 
 def test_section_where_keyword_found_nothing_is_not_a_halt(world):
@@ -554,14 +558,16 @@ def test_rereview_candidates_skip_judged_chunks_and_verifiable_claims(world):
 def test_stale_claim_queries_halt(world):
     q = pd.read_parquet("claim_queries.parquet")
     _write_claim_queries(q[q.claim_id != cid(BP, C3)].to_dict("records"))
+    gt = ep.load_ground_truth(MEMO)
     with pytest.raises(ep.EvalInputError, match="re-run python retrieval_pipeline.py recheck"):
-        ep.load_claim_queries("claim_queries.parquet", [ep.load_ground_truth(MEMO)])
+        ep.load_claim_queries("claim_queries.parquet", [gt])
 
 
 def test_missing_claim_queries_halt(world):
     os.remove("claim_queries.parquet")
+    gt = ep.load_ground_truth(MEMO)
     with pytest.raises(ep.EvalInputError, match="recheck"):
-        ep.load_claim_queries("claim_queries.parquet", [ep.load_ground_truth(MEMO)])
+        ep.load_claim_queries("claim_queries.parquet", [gt])
 
 
 def _rephrase(bp_phrase):
@@ -632,7 +638,8 @@ def test_score_run_reports_problems_from_every_input_together(world):
     with pytest.raises(ep.EvalInputError) as e:
         ep.score_run(now=NOW)
     text = str(e.value)
-    assert "blank" in text and "phrase config" in text
+    assert "blank" in text
+    assert "phrase config" in text
 
 
 def test_score_run_lists_missing_sections_and_phrase_drift_together(world):
@@ -764,7 +771,8 @@ def test_runs_embedded_with_different_models_are_not_comparable(world):
 def test_main_score_prints_the_headline(world, capsys):
     ep._main(["eval_pipeline.py", "score", "cli"])
     out = capsys.readouterr().out
-    assert "dense" in out and "67% (2/3)" in out
+    assert "dense" in out
+    assert "67% (2/3)" in out
 
 
 def test_main_usage_and_refusal(world):
@@ -786,7 +794,8 @@ def test_report_headline_counts_and_cohort_split(world):
     assert "67% (2/3)" in page      # claim coverage
     assert "100% (2/2)" in page     # extractive
     assert "0% (0/1)" in page       # synthesized
-    assert "at least one retrieved" in page and "all pieces retrieved: 0% (0/1)" in page
+    assert "at least one retrieved" in page
+    assert "all pieces retrieved: 0% (0/1)" in page
     assert "k = 2 passages per search phrase" in page
     assert "per query" not in page
     assert "one claim moves coverage by about 33 points" in page
@@ -813,7 +822,8 @@ def test_report_counts_passages_of_sections_without_verifiable_claims(world):
     run = _run()
     # the metrics table itself carries the section, so the stored run and the page agree
     m = ep._metric_row(run.metrics, "section", MEMO, hist, "dense", 5)
-    assert (m.claims, m.passages) == (0, 3) and pd.isna(m.coverage)
+    assert (m.claims, m.passages) == (0, 3)
+    assert pd.isna(m.coverage)
     page = ep.render_report(run, method="dense", k=5)
     assert "<div class=\"v\">10</div><div class=\"l\">across 3 sections" in page   # 5 + 2 + 3
     assert f"<td>{hist}</td><td>n/a</td><td>3</td>" in page
@@ -842,7 +852,8 @@ def test_report_is_self_contained(world):
 def test_report_pairs_the_unverifiable_count_with_rereview(world):
     page = ep.render_report(_run())
     assert "2 of 5 claims were not found in the sources by this process" in page
-    assert "For 2 of them" in page and "3 listed under Re-review candidates" in page
+    assert "For 2 of them" in page
+    assert "3 listed under Re-review candidates" in page
     assert "For each" not in page
     assert "absent from the sources" not in page
 
@@ -950,7 +961,8 @@ def test_report_command_and_show_report_write_files(world, capsys):
     ep._main(["eval_pipeline.py", "report", "latest"])
     assert os.path.exists(os.path.join("eval_runs", run.run_id, "report_dense_k5.html"))
     path = ep.show_report(method="both", k=3)
-    assert path.endswith("report_both_k3.html") and os.path.exists(path)
+    assert path.endswith("report_both_k3.html")
+    assert os.path.exists(path)
     ep._main(["eval_pipeline.py", "report", "latest", "--method=keyword", "--k=7"])
     assert os.path.exists(os.path.join("eval_runs", run.run_id, "report_keyword_k7.html"))
     with pytest.raises(SystemExit, match="usage"):
@@ -979,8 +991,9 @@ def test_evidence_doc_id_must_match_the_index(world):
     rows = _reviewed_rows()
     rows[0]["doc_id"] = "other.pdf"
     _write_reviewed(rows)
+    gt = ep.load_ground_truth(MEMO)
     with pytest.raises(ep.EvalInputError, match="doc_id"):
-        ep.check_index_parity(ep.load_ground_truth(MEMO))
+        ep.check_index_parity(gt)
 
 
 def test_results_without_provenance_halt(world):
@@ -1009,7 +1022,8 @@ def test_index_re_embedded_with_another_model_after_retrieve_halts(world):
     with pytest.raises(ep.EvalInputError) as e:
         ep.score_run(now=NOW)
     text = str(e.value)
-    assert "retrieval_results.parquet: produced with model 'test-model'" in text and "new-model" in text
+    assert "retrieval_results.parquet: produced with model 'test-model'" in text
+    assert "new-model" in text
     assert "claim_queries.parquet: produced with model 'test-model'" in text
 
 
@@ -1042,14 +1056,16 @@ def test_a_phrase_without_combined_rows_halts(world):
     # "both" fuses the dense list, so it has rows whenever dense does; a
     # missing method would otherwise score 0% as if the retriever failed.
     _write_results([r for r in _results_rows() if not (r["section"] == OWN and r["method"] == "both")])
+    gt, results = ep.load_ground_truth(MEMO), ep.load_results()
     with pytest.raises(ep.EvalInputError, match="'both'"):
-        ep.check_sections_retrieved(ep.load_ground_truth(MEMO), ep.load_results())
+        ep.check_sections_retrieved(gt, results)
 
 
 def test_a_memo_without_any_keyword_rows_halts(world):
     _write_results([r for r in _results_rows() if r["method"] != "keyword"])
+    gt, results = ep.load_ground_truth(MEMO), ep.load_results()
     with pytest.raises(ep.EvalInputError, match="keyword"):
-        ep.check_sections_retrieved(ep.load_ground_truth(MEMO), ep.load_results())
+        ep.check_sections_retrieved(gt, results)
 
 
 def test_latest_ignores_folders_that_are_not_runs(world):
@@ -1068,8 +1084,9 @@ def test_latest_orders_same_second_runs_past_nine(world):
 def test_a_run_missing_a_table_is_refused_cleanly(world):
     run_dir = ep.score_run(now=NOW)
     os.remove(os.path.join(run_dir, "metrics.parquet"))
+    run_id = os.path.basename(run_dir)
     with pytest.raises(ep.EvalInputError, match="metrics.parquet"):
-        ep.load_run(os.path.basename(run_dir))
+        ep.load_run(run_id)
 
 
 def test_a_neighbour_with_the_quote_outside_the_shared_text_is_not_a_hit(world):
@@ -1099,7 +1116,8 @@ def test_a_quote_longer_than_the_shared_text_is_not_hit_by_the_neighbour(world):
 def test_percentages_round_halves_away_from_zero():
     assert ep._pct(1, 8) == "13% (1/8)"      # 12.5 -> 13, not banker's 12
     assert ep._pct(3, 8) == "38% (3/8)"      # 37.5 -> 38, the same way
-    assert ep._round_half_away(-2.5) == -3 and ep._round_half_away(2.5) == 3
+    assert ep._round_half_away(-2.5) == -3
+    assert ep._round_half_away(2.5) == 3
 
 
 def test_a_human_added_row_with_several_quotes_is_hit_by_its_neighbour(world):
@@ -1136,7 +1154,8 @@ def test_a_human_added_row_is_grouped_by_its_quotes(world):
     _write_reviewed(rows)
     _, _, claim_hits, _, _ = _scored()
     c1 = claim_hits[(claim_hits["claim_id"] == cid(BP, C1)) & (claim_hits["method"] == "dense")]
-    assert len(c1) == 1 and c1.iloc[0]["group_size"] == 2
+    assert len(c1) == 1
+    assert c1.iloc[0]["group_size"] == 2
 
 
 def test_a_reviewed_sheet_with_an_invalid_name_is_warned_about(world, caplog):

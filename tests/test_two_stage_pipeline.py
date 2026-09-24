@@ -79,24 +79,26 @@ def test_read_memo_config_shape(tmp_path):
 
 
 def test_read_memo_config_rejects_unsafe_memo_id(tmp_path):
+    config_path = _config(tmp_path, """
+        memos:
+          - id: MEMO/1
+            source_folder: SRC
+            sections: {Ownership: "x"}
+    """)
     with pytest.raises(ValueError, match="MEMO/1|must match"):
-        gsp._read_memo_config(_config(tmp_path, """
-            memos:
-              - id: MEMO/1
-                source_folder: SRC
-                sections: {Ownership: "x"}
-        """))
+        gsp._read_memo_config(config_path)
 
 
 def test_read_memo_config_rejects_padded_section_name(tmp_path):
+    config_path = _config(tmp_path, """
+        memos:
+          - id: MEMO-1
+            source_folder: SRC
+            sections:
+              "  Padded  ": "x"
+    """)
     with pytest.raises(ValueError, match="section name"):
-        gsp._read_memo_config(_config(tmp_path, """
-            memos:
-              - id: MEMO-1
-                source_folder: SRC
-                sections:
-                  "  Padded  ": "x"
-        """))
+        gsp._read_memo_config(config_path)
 
 
 def _claims_dir(tmp_path, **files):
@@ -166,7 +168,8 @@ def test_run_extract_writes_one_file_per_memo(tmp_path, stub_extract):
     counts = gsp.run_extract(cfg, str(tmp_path / "claims"), llm_client=None)
     assert counts == {"written": 1, "skipped": 0, "drift": 0, "failed": 0}
     written = (tmp_path / "claims" / "MEMO-1.md").read_text(encoding="utf-8")
-    assert "## Ownership" in written and "1. claim from:" in written
+    assert "## Ownership" in written
+    assert "1. claim from:" in written
 
 
 def test_run_extract_never_overwrites_and_reports_drift(tmp_path, stub_extract):
@@ -216,7 +219,8 @@ def test_run_extract_aborts_memo_on_section_failure(tmp_path, monkeypatch):
             sections: {A: "fine"}
     """)
     counts = gsp.run_extract(cfg, str(tmp_path / "claims"), llm_client=None)
-    assert counts["failed"] == 1 and counts["written"] == 1
+    assert counts["failed"] == 1
+    assert counts["written"] == 1
     assert not (tmp_path / "claims" / "MEMO-1.md").exists()
     assert (tmp_path / "claims" / "MEMO-2.md").exists()
 
@@ -286,7 +290,8 @@ def test_run_build_wires_loader_to_batch_and_export(tmp_path, monkeypatch):
                         checkpoint_path=str(tmp_path / "cp.parquet"), review_path=str(tmp_path / "r.xlsx"))
     assert seen["sections"][0][2] == ["a claim"]      # slot 3 is the claims list
     assert seen["review"] == str(tmp_path / "r.xlsx")
-    assert seen["review_df"] is fake_df and out is fake_df  # the real frame flows through
+    assert seen["review_df"] is fake_df  # the real frame flows through
+    assert out is fake_df
 
 
 def test_run_build_errors_on_empty_claims_dir(tmp_path):

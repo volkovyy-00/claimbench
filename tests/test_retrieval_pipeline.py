@@ -440,8 +440,9 @@ def test_embed_dimension_mismatch_raises(tmp_path, monkeypatch):
     )
     # force a re-embed by changing one chunk
     monkeypatch.setattr(gsp, "load_pdf_text", lambda p: "alpha. " * 200 + "OMEGA")
+    client = _client()
     with pytest.raises(ValueError, match="MEMO-1.parquet"):
-        rp.run_embed(str(rdir), str(idir), client=_client())
+        rp.run_embed(str(rdir), str(idir), client=client)
 
 
 def test_embed_records_model_provenance(tmp_path, stub_embed, monkeypatch):
@@ -477,7 +478,8 @@ def test_embed_model_change_same_dimension_raises_named_error(tmp_path, monkeypa
         rp.run_embed(rdir, idir, client=other_client)
     msg = str(ei.value)
     assert "MEMO-1.parquet" in msg
-    assert "'m'" in msg and "'m2'" in msg
+    assert "'m'" in msg
+    assert "'m2'" in msg
     assert "re-run embed" in msg
 
 
@@ -644,8 +646,9 @@ def test_embed_prepass_rejects_before_any_api_call(tmp_path, monkeypatch):
         "memo_id: MEMO-2\nsource_folder: s\n", encoding="utf-8"  # missing 'sections'
     )
     idir = str(tmp_path / "retrieval_index")
+    client = _client()
     with pytest.raises(ValueError, match="MEMO-2"):
-        rp.run_embed(rdir, idir, client=_client())
+        rp.run_embed(rdir, idir, client=client)
     assert calls["n"] == 0
     assert not os.path.exists(os.path.join(idir, "MEMO-1.parquet"))
 
@@ -655,8 +658,9 @@ def test_embed_empty_pdfs_raise_named_error(tmp_path, stub_embed, monkeypatch):
     monkeypatch.setattr(gsp, "warn_if_text_suspiciously_short", lambda *a, **k: None)
     src = _src_folder(tmp_path, {"a.pdf": None})
     rdir = _write_retrieval_yaml(tmp_path, "MEMO-1", src, {"Sec": ["q"]})
+    client = _client()
     with pytest.raises(ValueError, match="MEMO-1.*no chunks"):
-        rp.run_embed(rdir, str(tmp_path / "retrieval_index"), client=_client())
+        rp.run_embed(rdir, str(tmp_path / "retrieval_index"), client=client)
 
 
 # --- additional coverage: branches the brief's own test block doesn't reach ---
@@ -750,8 +754,9 @@ def test_embed_prepass_rejects_bad_source_folder(tmp_path, monkeypatch):
     missing_src = str(tmp_path / "does_not_exist")
     rdir = _write_retrieval_yaml(tmp_path, "MEMO-1", missing_src, {"Sec": ["q"]})
     idir = str(tmp_path / "retrieval_index")
+    client = _client()
     with pytest.raises(ValueError, match="not a directory"):
-        rp.run_embed(rdir, idir, client=_client())
+        rp.run_embed(rdir, idir, client=client)
     assert calls["n"] == 0
     assert not os.path.exists(idir)
 
@@ -768,8 +773,9 @@ def test_embed_cached_index_itself_ragged_raises(tmp_path, monkeypatch):
     rows[-1]["embedding"] = [0.0, 0.0, 0.0]  # one vector a different length -> ragged cache
     pd.DataFrame(rows)[rp._INDEX_COLUMNS].to_parquet(idir / "MEMO-1.parquet")
 
+    client = _client()
     with pytest.raises(ValueError, match=r"MEMO-1\.parquet.*inconsistent dimensions.*[Dd]elete.*re-run embed"):
-        rp.run_embed(str(rdir), str(idir), client=_client())
+        rp.run_embed(str(rdir), str(idir), client=client)
 
 
 def test_embed_atomic_write_failure_preserves_previous_index(tmp_path, stub_embed, monkeypatch):
@@ -790,8 +796,9 @@ def test_embed_atomic_write_failure_preserves_previous_index(tmp_path, stub_embe
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(pd.DataFrame, "to_parquet", boom)
+    client = _client()
     with pytest.raises(RuntimeError, match="disk full"):
-        rp.run_embed(str(rdir), str(idir), client=_client())
+        rp.run_embed(str(rdir), str(idir), client=client)
 
     assert index_path.read_bytes() == before  # previous index untouched
     assert not os.path.exists(str(index_path) + ".tmp")
@@ -896,9 +903,10 @@ def test_retrieve_before_embed_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(gsp, "load_pdf_text", lambda p: "alpha. " * 50)
     src = _src_folder(tmp_path, {"a.pdf": None})
     rdir = _write_retrieval_yaml(tmp_path, "MEMO-1", src, {"Sec": ["q"]})
+    client = _client()
     with pytest.raises(ValueError, match="run .*embed"):
         rp.run_retrieve(rdir, str(tmp_path / "empty_index"),
-                        str(tmp_path / "r.parquet"), claims_dir=str(tmp_path / "x"), client=_client())
+                        str(tmp_path / "r.parquet"), claims_dir=str(tmp_path / "x"), client=client)
 
 
 def test_retrieve_stale_index_both_directions(tmp_path, monkeypatch):
@@ -906,14 +914,15 @@ def test_retrieve_stale_index_both_directions(tmp_path, monkeypatch):
                                       doc_text="alpha. " * 200)
     # (a) a current chunk's text changed
     monkeypatch.setattr(gsp, "load_pdf_text", lambda p: "alpha. " * 200 + "OMEGA")
+    client = _client()
     with pytest.raises(ValueError, match="run .*embed"):
         rp.run_retrieve(rdir, idir, str(tmp_path / "r.parquet"),
-                        claims_dir=str(tmp_path / "x"), client=_client())
+                        claims_dir=str(tmp_path / "x"), client=client)
     # (b) the PDF got shorter — index holds chunk_ids no longer produced
     monkeypatch.setattr(gsp, "load_pdf_text", lambda p: "alpha. " * 10)
     with pytest.raises(ValueError, match="run .*embed"):
         rp.run_retrieve(rdir, idir, str(tmp_path / "r.parquet"),
-                        claims_dir=str(tmp_path / "x"), client=_client())
+                        claims_dir=str(tmp_path / "x"), client=client)
 
 
 def test_dedupe_by_section(tmp_path, monkeypatch):
@@ -976,8 +985,9 @@ def test_retrieve_prepass_checks_all_indexes_before_embedding(tmp_path, monkeypa
     rp.run_embed(rdir, idir, ["MEMO-1"], client=_client())  # only MEMO-1 has an index
     calls["n"] = 0
     results = str(tmp_path / "retrieval_results.parquet")
+    client = _client()
     with pytest.raises(ValueError, match="MEMO-2.parquet"):
-        rp.run_retrieve(rdir, idir, results, claims_dir=str(tmp_path / "x"), client=_client())
+        rp.run_retrieve(rdir, idir, results, claims_dir=str(tmp_path / "x"), client=client)
     assert calls["n"] == 0  # no phrases embedded — pre-pass caught MEMO-2 first
     assert not os.path.exists(results)
 
@@ -1026,9 +1036,10 @@ def test_retrieve_empty_index_raises(tmp_path, monkeypatch):
     rdir, idir = _embed_and_get_index(tmp_path, {"Sec": ["q"]}, monkeypatch)
     idx_path = os.path.join(idir, "MEMO-1.parquet")
     pd.DataFrame(columns=rp._INDEX_COLUMNS).to_parquet(idx_path, index=False)
+    client = _client()
     with pytest.raises(ValueError, match="empty"):
         rp.run_retrieve(rdir, idir, str(tmp_path / "r.parquet"),
-                        claims_dir=str(tmp_path / "x"), client=_client())
+                        claims_dir=str(tmp_path / "x"), client=client)
 
 
 def test_retrieve_ragged_index_embeddings_raise(tmp_path, monkeypatch):
@@ -1047,9 +1058,10 @@ def test_retrieve_ragged_index_embeddings_raise(tmp_path, monkeypatch):
     rows[-1]["embedding"] = [0.1, 0.2]  # ragged: one shorter vector
     pd.DataFrame(rows)[rp._INDEX_COLUMNS].to_parquet(idir / "MEMO-1.parquet")
 
+    client = _client()
     with pytest.raises(ValueError, match="inconsistent dimensions"):
         rp.run_retrieve(str(rdir), str(idir), str(tmp_path / "r.parquet"),
-                        claims_dir=str(tmp_path / "x"), client=_client())
+                        claims_dir=str(tmp_path / "x"), client=client)
 
 
 def test_retrieve_phrase_index_dim_mismatch_raises_named_error(tmp_path, monkeypatch):
@@ -1063,9 +1075,10 @@ def test_retrieve_phrase_index_dim_mismatch_raises_named_error(tmp_path, monkeyp
         rp, "call_embeddings",
         lambda texts, client, *, input_type=None: [[0.1, 0.2, 0.3] for _ in texts],  # 3-dim
     )
+    client = _client()
     with pytest.raises(ValueError) as ei:
         rp.run_retrieve(rdir, idir, str(tmp_path / "r.parquet"),
-                        claims_dir=str(tmp_path / "x"), client=_client())
+                        claims_dir=str(tmp_path / "x"), client=client)
     msg = str(ei.value)
     assert "MEMO-1" in msg
     assert "3-dim" in msg or "3)" in msg
@@ -1425,7 +1438,8 @@ def test_recheck_sends_query_input_type_when_asymmetric(tmp_path, monkeypatch):
     )
     client = rp.EmbeddingClient("https://x/v1", "k", "m", asymmetric=True)
     rp.run_recheck(rdir, idir, cdir, str(tmp_path / "q.parquet"), client=client)
-    assert seen and all(t == "query" for t in seen)
+    assert seen
+    assert all(t == "query" for t in seen)
 
 
 def test_recheck_missing_claims_file_raises_before_embedding(tmp_path, monkeypatch):
@@ -1435,8 +1449,9 @@ def test_recheck_missing_claims_file_raises_before_embedding(tmp_path, monkeypat
         rp, "call_embeddings",
         lambda texts, client, *, input_type=None: calls.append(1) or [_fake_vec(t) for t in texts],
     )
+    client = _client()
     with pytest.raises(ValueError, match="recheck embeds each claim"):
-        rp.run_recheck(rdir, idir, str(tmp_path / "no_claims"), str(tmp_path / "q.parquet"), client=_client())
+        rp.run_recheck(rdir, idir, str(tmp_path / "no_claims"), str(tmp_path / "q.parquet"), client=client)
     assert calls == []
 
 
@@ -1475,10 +1490,11 @@ def test_query_model_must_match_the_index_model(tmp_path, monkeypatch, command):
         lambda texts, client, *, input_type=None: calls.append(1) or [_fake_vec(t) for t in texts],
     )
     other = rp.EmbeddingClient("https://x/v1", "k", "other-model", asymmetric=False)
-    with pytest.raises(ValueError, match="EMBED_MODEL"):
-        if command == "retrieve":
+    if command == "retrieve":
+        with pytest.raises(ValueError, match="EMBED_MODEL"):
             rp.run_retrieve(rdir, idir, str(tmp_path / "r.parquet"), claims_dir=cdir, client=other)
-        else:
+    else:
+        with pytest.raises(ValueError, match="EMBED_MODEL"):
             rp.run_recheck(rdir, idir, cdir, str(tmp_path / "q.parquet"), client=other)
     assert calls == []   # refused in the pre-pass, before any embedding call
 
@@ -1508,8 +1524,9 @@ def test_an_interrupted_provenance_write_keeps_the_last_good_file(tmp_path, monk
         open(where, "wb").write(b"PAR1 trunc")          # a half-written file, then the crash
         raise KeyboardInterrupt
     monkeypatch.setattr(rp.pq, "write_table", crash)
+    df = pd.DataFrame({"a": [2]})
     with pytest.raises(KeyboardInterrupt):
-        rp._write_with_provenance(pd.DataFrame({"a": [2]}), path, {"command": "retrieve"})
+        rp._write_with_provenance(df, path, {"command": "retrieve"})
     assert pd.read_parquet(path)["a"].tolist() == [1]
     assert os.listdir(tmp_path) == ["r.parquet"]
 
