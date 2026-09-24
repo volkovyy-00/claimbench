@@ -487,7 +487,7 @@ def _quotes(golden) -> list[str]:
     span is one quote, kept whole: it is text from the chunk, which may itself
     contain the separator (a table row), and split it would match on a
     fragment."""
-    span = str(golden.evidence_span or "")
+    span = str(golden.evidence_span or "")  # already str or None (load_ground_truth reads cells through _text)
     return span.split(_QUOTE_SEPARATOR) if golden.human_added else [span]
 
 
@@ -990,24 +990,11 @@ def score_run(
             queries = load_claim_queries(claim_queries_path, gts, index_dir)
         except EvalInputError as e:
             problems += e.problems
-    if problems:
+    # Every path that leaves results, queries or results_provenance None has
+    # added to problems, so the None tests change nothing at runtime; they let
+    # the checker see all three are set below.
+    if problems or results is None or queries is None or results_provenance is None:
         raise EvalInputError(problems)
-    if results is None:
-        # load_results either set this above or added to problems, which
-        # would have raised already — can't happen, but lets the checker
-        # see results is a DataFrame below.
-        raise EvalInputError([f"{results_path}: could not be loaded"])
-    if queries is None:
-        # gts is non-empty here (an empty gts would itself have added to
-        # problems above), so load_claim_queries always ran and either set
-        # queries or added to problems — can't happen either.
-        raise EvalInputError([f"{claim_queries_path}: could not be loaded"])
-    if results_provenance is None:
-        # every path that leaves this None (load_results raising,
-        # read_provenance raising, or returning None) also added to
-        # problems above, which would have raised already — can't happen,
-        # but lets the checker see this is a dict below.
-        raise EvalInputError([f"{results_path}: could not be loaded"])
     skipped = sorted(set(results["memo_id"]) - set(memo_ids))
     if skipped:
         logger.warning("eval: retrieval results also cover %s with no reviewed sheet — not scored", skipped)
