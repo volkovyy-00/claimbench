@@ -23,7 +23,7 @@ wording already there. It does NOT ask "is this claim vague"; a broad
 "every claim must assert something checkable" bar was rejected in
 brainstorming because it pushes the model to invent specificity
 (decision 5's failure mode) and pulls in standalone evaluative
-sentences, which are ticket 010's job. A whole sentence the memo
+sentences, which are EV-6's job. A whole sentence the memo
 asserts outright that happens to be unfalsifiable ("Acme is well run.")
 is left unchanged. The split is deliberate on cost asymmetry: a bare
 evaluative claim that slips through is one `found=False` row a reviewer
@@ -105,7 +105,7 @@ the clean constructed fixture went 1/3 → 0/6; every over-firing guard
 out-of-sample leave cases) PASSed unchanged; the restore direction
 held or improved out of sample; the 11 embedded examples regressed
 only in cosmetic wording. In-context on `MEMO-002` the fix does **not**
-reliably fire (ticket 011's granularity ceiling — the isolated
+reliably fire (EV-7's granularity ceiling — the isolated
 fixtures carry the verdict). Full run-by-run results:
 `docs/prompt-verification-log.md` → "Decision 16 / ticket 009".
 
@@ -123,12 +123,12 @@ facility.") toward a redundant pair with a fuller version of itself
 in the other, which the prompt forbids. This containment is silent
 (the ticket-007 WARNING fires only on byte-identical text) and costs a
 second `claim_id`, shortlist and evidence run downstream; a candidate
-for ticket 010's always-on check. In-context reliability rides on
-ticket 011's granularity ceiling staying open.
+for EV-6's always-on check. In-context reliability depends on
+the granularity ceiling (EV-7).
 
-**Companion nets.** Ticket 010 (open — an always-on unmatchable-claim
+**Companion nets.** EV-6 (an always-on unmatchable-claim
 check that will own the standalone-evaluative sentence that keeps its
-bare predicate); ticket 011 (long-section granularity ceiling).
+bare predicate); EV-7 (long-section granularity ceiling).
 Decision 16 is one of several related prompt edits, landed separately
 so a regression stays
 attributable to one.

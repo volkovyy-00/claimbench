@@ -1,0 +1,74 @@
+name: Publish release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # push the tag and create the GitHub Release
+
+# One run at a time, in merge order. queue: max keeps every waiting run; the
+# default keeps only one and cancels the rest, which could skip a tag.
+concurrency:
+  group: release
+  queue: max
+
+jobs:
+  publish:
+    # Not "Release": that is the required PR check's name, and required checks
+    # match by name.
+    name: Publish release
+    runs-on: ubuntu-latest
+    steps:
+      # Unlike the check workflows, this one keeps the checkout's credentials
+      # (no persist-credentials: false): the tag push below needs them.
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # tags and full history: is it tagged, and which commit added it
+
+      # Every version from 0.3.0 on, oldest first, not only the top one: if an
+      # earlier run failed and another release merged since, this run catches
+      # up. Each tag and Release is created only if missing, so a merge with no
+      # new version, or a re-run after a partial failure, is safe.
+      - name: Tag and publish every version still missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          versions="$(python3 .github/scripts/release_check.py versions CHANGELOG.md)"
+          newest="$(printf '%s\n' "${versions}" | tail -n 1)"
+          for version in ${versions}; do
+            tag="v${version}"
+            notes="${RUNNER_TEMP}/notes-${version}.md"
+            python3 .github/scripts/release_check.py notes CHANGELOG.md "${version}" "${notes}"
+
+            if git rev-parse --quiet --verify "refs/tags/${tag}" > /dev/null; then
+              echo "Tag ${tag} already exists."
+            else
+              # Tag the commit that added this version's heading line (its
+              # release PR's squash commit), not GITHUB_SHA, which may be a
+              # later merge. -G matches the heading line itself, so a later
+              # entry that merely quotes it doesn't count.
+              commit="$(git log -1 --format=%H -G"^## \[${version//./\\.}\] - " -- CHANGELOG.md)"
+              if [ -z "${commit}" ]; then
+                echo "No commit adds the '## [${version}]' heading to CHANGELOG.md." >&2
+                exit 1
+              fi
+              # verbatim: the default cleanup strips every line starting with
+              # "#", which would drop the section's ### headings.
+              git tag --annotate --cleanup=verbatim "${tag}" --file "${notes}" "${commit}"
+              git push origin "refs/tags/${tag}"
+            fi
+
+            if gh release view "${tag}" > /dev/null 2>&1; then
+              echo "Release ${tag} already exists."
+            else
+              # Only the newest version is marked Latest; an older one being
+              # caught up must not take that from it.
+              latest=false
+              [ "${version}" = "${newest}" ] && latest=true
+              gh release create "${tag}" --verify-tag --title "${tag}" --notes-file "${notes}" --latest="${latest}"
+            fi
+          done

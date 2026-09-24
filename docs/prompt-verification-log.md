@@ -154,7 +154,7 @@ pass/fail instrument.
 - **Partial modifier** (`G1-modifier`): count 2/3 → **3/3**, "to a lesser
   extent" on Initech and Umbrella separately and never Globex, 3/3.
   Out-of-sample (`OOS-E`): count 0/3 → 0/3 — "the two regional units"
-  stays one claim (ticket-011 economization); qualifier placement correct
+  stays one claim (EV-7 economization); qualifier placement correct
   3/3 either way. Reverse case, qualifier true of all members (`OOS-F`):
   3/3 → 3/3.
 - **Out-of-sample closed lists**: `OOS-A` ("may be used only for X and
@@ -178,7 +178,7 @@ pass/fail instrument.
   ("Acme uses this process …") *improved* 0/3 → 3/3 (one claim, no
   stranded-pointer warning).
 - **Real `MEMO-002` section, in-context** (monitored, not a pass/fail bar
-  — the same economization ceiling degrades it, per ticket 011): the
+  — the same economization ceiling degrades it, per EV-7): the
   Gantry management-role sentence, run by run: fully clean (no contradiction *and* the "such as"
   examples kept inside) 0/3 → 0/3; free of the contradiction 1/3 → 1/3
   (pre-edit, one run was already coherent but lifted the examples out;
@@ -218,7 +218,7 @@ pass/fail instrument.
 1/3 and `OOS-G` 2/3 (with the `$2bn notional` split-off, closure vs.
 attached-measured-attribute) — logged with their failure mode, not chased
 with re-runs. In-context, the mangled upgrade-rationale sentence and the
-general granularity ceiling (ticket 011) are unchanged; a minor
+general granularity ceiling (EV-7) are unchanged; a minor
 in-context pointer-resolution wobble ("This results in a strong downside
 correlation …" stranded 2/3 post vs 0/3 pre) sits inside decision 5's
 documented variance and the `_STRANDED_POINTING_WORD_RE` backstop fired
@@ -293,14 +293,14 @@ against `1b7019d` before the edit.
   run (decision 5 documents ~2/3, so a future 2/3 there is within the
   floor, not a regression).
 - **Real `MEMO-002` section, in-context** (monitored, not a gate —
-  ticket 011's granularity ceiling degrades this section generally): the
+  EV-7's granularity ceiling degrades this section generally): the
   in-context result is **not reproducible**. Task 7 saw the driver
   sentence's bare "Borealis has pricing initiatives." form at 0/3 and the drivers attached 2/3; a
   final-verification re-run saw the bare form at **2/3** (run 1 detached
   into thin verbs "maintained"/"implemented", runs 2–3 the bare "has"
   form) and the drivers attached **0/3** — i.e. back to the pre-edit
   rate. In-context at 4,400 chars the fix does not reliably fire; this is
-  ticket 011's granularity ceiling (the spec scopes Group A as monitored,
+  EV-7's granularity ceiling (the spec scopes Group A as monitored,
   not a gate) and the isolated fixtures carry the verdict. The 4-claim
   healthy sample was all present and un-concretized across both runs,
   with no new in-context over-firing from this edit. The mangled
@@ -326,11 +326,11 @@ against `1b7019d` before the edit.
   decision 3). This containment is silent — the ticket-007
   duplicate-claim WARNING fires only on byte-identical text — and it
   costs that claim a second `claim_id`, BM25 shortlist and evidence run
-  downstream; a candidate for ticket 010's always-on check.
+  downstream; a candidate for EV-6's always-on check.
 - The abstract trigger is a loose fit for the causal case — "asserted
   something more about that thing" is imperfect when the sentence asserts
   about *margins*, not "about lower costs" — and in-context reliability
-  rides on ticket 011's granularity ceiling staying open.
+  rides on EV-7's granularity ceiling staying open.
 
 ---
 
@@ -453,7 +453,7 @@ unverifiable      3           0            8             6
 
 | cohort | rows | agreement |
 |---|---|---|
-| claim not self-contained (stranded pointing phrase — decision 5's open residual / ticket 010) | 24 | 25% |
+| claim not self-contained (stranded pointing phrase — decision 5's open residual / EV-6) | 24 | 25% |
 | segment-as-subject claim (cause 1) | 22 | 50% |
 | everything else | 26 | 50% |
 

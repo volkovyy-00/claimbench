@@ -419,9 +419,8 @@ with claims but no search results).
 It does **not** score itself: `eval_pipeline.py` (below) measures its
 results against the reviewed evidence sheets in `reviewed/`. Full design:
 `docs/superpowers/specs/2026-09-07-local-retrieval-design.md`
-— a gitignored, local design doc (`docs/superpowers/` is not committed),
-same treatment as `docs/tickets/`'s "gitignored, local backlog"; not present
-on a fresh clone.
+— in the maintainer's private notes repo cloned at `docs/superpowers/` (see
+`CONTRIBUTING.md`, section 7); not present on a fresh clone of this repo alone.
 
 ### Measuring it: `eval_pipeline.py`
 

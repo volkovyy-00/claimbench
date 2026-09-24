@@ -4,22 +4,30 @@ All notable user-visible changes to this pipeline are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html). There is
-no package to publish: a "release" is a `## [x.y.z] - DATE` heading here
-plus a matching annotated `vx.y.z` git tag. Pre-1.0 — the CLI/API may
-break between minor versions. Add new entries under `## [Unreleased]` as
-you make changes; roll them into a version heading when you cut a
-release.
+no package to publish: every pull request with a user-visible change is a
+release. It adds its own `## [x.y.z] - DATE` heading here, and merging it
+tags `vx.y.z` and publishes a GitHub Release automatically. Each entry
+cites its Jira ticket (`EV-N`); entries written before the move to Jira,
+including most of 0.3.0, cite none. Tags start at `v0.3.0`: 0.1.0 and
+0.2.0 were released before this repository was published and have no tags
+here. Pre-1.0 — the CLI/API may break between
+minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 
-## [Unreleased]
+## [0.3.0] - 2026-09-23
 
 ### Added
+
+- Every version from 0.3.0 on is tagged `vx.y.z` and published as a
+  GitHub Release. Each pull request with a user-visible change is now its
+  own release, so this file no longer has an `## [Unreleased]` section.
+  (EV-11)
 
 - CI on every pull request and push to `main`: Ruff (lint), basedpyright
   (type check), the pytest suite, and SonarCloud analysis, each a separate
   required check. `pip install -r requirements-dev.txt` installs the same
   pinned tools locally; `ruff check .` and `basedpyright` apply exactly the
   rules CI does. The type check fails only on errors newer than
-  `.basedpyright/baseline.json`.
+  `.basedpyright/baseline.json`. (EV-3)
 
 - `python retrieval_pipeline.py retrieve` now searches every phrase three
   ways and writes a `method` column: `dense` (as before), `keyword` (BM25)
@@ -216,10 +224,9 @@ release.
   golden set and pre-eval — no recall/precision/MRR yet; the results table
   is shaped so a later harness can compute them. Template:
   `retrieval.example.yaml`. Design:
-  `docs/superpowers/specs/2026-09-07-local-retrieval-design.md` — a
-  gitignored, local design doc (`docs/superpowers/` is not committed), same
-  treatment as `docs/tickets/`'s "gitignored, local backlog"; not present on
-  a fresh clone. Live-verified against OpenRouter's `baai/bge-m3`
+  `docs/superpowers/specs/2026-09-07-local-retrieval-design.md` — in the
+  maintainer's private notes repo (`CONTRIBUTING.md`, section 7); not present
+  on a fresh clone. Live-verified against OpenRouter's `baai/bge-m3`
   (dim=1024, standard OpenAI-compatible `{"data": [{"embedding": [...],
   "index": ...}]}` response, no `input_type` body key needed) on a real
   822-chunk corpus: 9 phrases retrieved 20 rows each with
@@ -411,7 +418,7 @@ release.
   and a partial qualifier ("but to a lesser extent") now survives onto
   the claims for the members it modifies instead of being dropped. The
   rules are verified sentence by sentence; inside a large section the
-  output-volume ceiling tracked by ticket 011 can still coarsen these
+  output-volume ceiling tracked by EV-7 can still coarsen these
   shapes, so the motivating real section needs that fix as well.
   Some closed-list phrasings also still split on a minority of runs even
   in isolation, and the fix does not reach a sentence already degraded in
@@ -430,5 +437,5 @@ release.
   CLAUDE.md records the measured pre/post results and residuals: the
   attribution-dropping shatter is eliminated on isolated input, the
   in-context improvement is unproven (a re-run put the bare form back at
-  2/3 — ticket 011's granularity ceiling), and an isolated run-on still
+  2/3 — EV-7's granularity ceiling), and an isolated run-on still
   severs the drivers into thin verbs on a majority of runs.

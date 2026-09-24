@@ -68,25 +68,25 @@ on three identical runs). Instead the closure rule sits inline beside
 the comparator-entity exception, and the first self-test simply names
 the closure case as out of its scope.
 
-**Scope — AC-1 was split out to ticket 011.** The originating ticket
+**Scope — AC-1 was split out to EV-7.** The originating ticket
 also asked that a plain member-list return one claim per member. The
 pre-edit baseline showed that already works *in isolation* ("Acme's
 largest customers are Globex, Initech, and Umbrella." → 3 claims, 3/3)
 but *not* inside a large section: the real three-member "Key customers
 are …" sentence stayed a single claim 3/3 in
 the 4,400-character MEMO-002 section. Diagnosis (8 context sizes, 3
-runs each; the dose-response table is in ticket 011): a clean
+runs each; the dose-response table is in EV-7): a clean
 dose-response — the list splits at ≤ ~230 characters and stops by
 ~1,270 — i.e. output-volume granularity
 economization, not a closure-semantics effect (the isolated cases
 split), not folded-scalar heading glue (glued vs. blank-line
 identical), not phrasing. That ceiling is a general property of
-long-section extraction and is now ticket 011; this edit is closure +
+long-section extraction and is now EV-7; this edit is closure +
 modifier only. (Incidentally, post-edit the "Key customers" sentence
 *does* split 3/3 in section context — the closure exception's
 plain-enumeration carve-out example raised copula-list salience enough
-to beat the economization for that one shape. Ticket 011 stays open:
-the ceiling itself is unchanged, e.g. "the two regional units" still
+to beat the economization for that one shape. The ceiling itself
+(EV-7) is unchanged, e.g. "the two regional units" still
 collapses to one claim.)
 
 **Regression baseline — the embedded worked examples.** This edit
@@ -102,7 +102,7 @@ baseline against `bf31154`): the closed set, hedged forecast and
 partial-modifier fixtures went 0/3 → 3/3; the open-list counterweight,
 the comparator-entity interaction, the copula member-list guard and
 the 8 embedded examples held with no regression; the real in-context
-`MEMO-002` Gantry sentence improved only marginally (ticket 011's
+`MEMO-002` Gantry sentence improved only marginally (EV-7's
 granularity ceiling degrades it — the isolated `G1-closed` fixture
 carries the verdict). Full run-by-run results and the focused
 end-to-end run: `docs/prompt-verification-log.md` → "Decision 15 /
@@ -114,16 +114,16 @@ residuals: an "only … and …" permission still reads as two permissions
 mandate splits the `$2bn notional` off as its own attached-attribute
 claim 1 run in 3 (closure vs. the attached-measured-attribute rule) —
 logged with their failure modes, not chased. In-context, the mangled
-upgrade-rationale sentence and the granularity ceiling (ticket 011)
+upgrade-rationale sentence and the granularity ceiling (EV-7)
 are unchanged.
 
 **Companion nets.** Ticket 009 adds a predicate-retention bar to the
 *second* self-test — a split piece must keep the predicate its source
 sentence gave it rather than decaying to a bare "X has Y" (see decision
 16); this edit's parenthetical is on the *first* self-test — different
-self-tests, different failure classes. Ticket 010
+self-tests, different failure classes. EV-6
 is the always-on unmatchable-claim check that catches list shapes the
-prompt rule misses. Ticket 011 owns AC-1 and the long-section
+prompt rule misses. EV-7 owns AC-1 and the long-section
 granularity ceiling split out of this ticket. Decision 15 is one of
 several related prompt edits, landed separately so a regression stays
 attributable to one.

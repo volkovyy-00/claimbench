@@ -1,8 +1,7 @@
 """
 Tests for the log-level escalation on propose_evidence_from_chunks_batched's
-pre-loop candidate/batch-count line (see
-docs/tickets/004-log-oversized-candidate-shortlists.md and CLAUDE.md design
-decision 13).
+pre-loop candidate/batch-count line (see local ticket 004, archived in the
+maintainer's notes repo, and CLAUDE.md design decision 13).
 
 Mocks golden_set_pipeline.call_llm so no real LLM provider is contacted,
 consistent with this repo's testing convention (CLAUDE.md, "Testing

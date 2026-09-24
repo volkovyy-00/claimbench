@@ -171,7 +171,7 @@ these pass silently and can produce confidently-wrong evidence rows —
 the five-wrong-metrics shape again. The forcing wording ("every claim
 from a paragraph must carry the paragraph's name for the thing") is a
 blunt instrument that reintroduces the over-resolution the
-counterweights guard against and case 5 passes. Ticket 010 (an
+counterweights guard against and case 5 passes. EV-6 (an
 always-on unmatchable-claim check in `build_golden_set_draft`) is the
 designed net; `preview_claim_splits` (decision 14) the opt-in human
 catch. Best-evidenced residual here, not a target for another prompt
