@@ -430,8 +430,10 @@ def _load_index(index_path: str) -> dict[str, tuple[str, list[float]]]:
         return {}
     df = pd.read_parquet(index_path)
     return {
-        row.chunk_id: (row.chunk_text, list(row.embedding))
-        for row in df.itertuples(index=False)
+        chunk_id: (chunk_text, list(embedding))
+        for chunk_id, chunk_text, embedding in zip(
+            df["chunk_id"], df["chunk_text"], df["embedding"]
+        )
     }
 
 
