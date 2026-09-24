@@ -400,7 +400,8 @@ def test_override_roundtrips_memos_yaml_to_claims_file_to_build(tmp_path, monkey
     gsp.run_extract(str(cfg), str(tmp_path / "claims"), llm_client=None)
     written = (tmp_path / "claims" / "MEMO-1.md").read_text(encoding="utf-8")
     assert "relative_threshold: 0.45" in written
-    assert "min_candidates" not in written and "batch_size" not in written
+    assert "min_candidates" not in written
+    assert "batch_size" not in written
 
     tuples = gsp.load_memo_sections_from_claims(str(tmp_path / "claims"))
     assert tuples[0][4] == {"relative_threshold": 0.45}

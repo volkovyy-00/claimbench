@@ -222,7 +222,8 @@ def test_resolve_quote_ignores_all_whitespace_differences():
 
 def test_resolve_quote_not_found_names_both_likely_causes():
     problem = tp._resolve_quote("The Group opened three centres in Spain", SMALL)
-    assert problem.startswith("quote not found") and "ligatures, hyphenation" in problem
+    assert problem.startswith("quote not found")
+    assert "ligatures, hyphenation" in problem
 
 
 def test_resolve_quote_in_the_shared_overlap_of_neighbours_returns_both():
@@ -238,7 +239,8 @@ def test_resolve_quote_in_the_shared_overlap_of_neighbours_returns_both():
 ])
 def test_resolve_quote_a_generic_phrase_in_two_places_is_refused(chunks):
     problem = tp._resolve_quote("Figures in EUR million unless stated otherwise", chunks)
-    assert problem.startswith("quote found in 2 places") and problem.endswith("paste a longer quote")
+    assert problem.startswith("quote found in 2 places")
+    assert problem.endswith("paste a longer quote")
 
 
 # Any small real filing: sources/ is gitignored, so point this path (a symlink
@@ -552,7 +554,8 @@ def _reviewed():
 def test_run_finalize_writes_rows_tags_and_rationale(memo):
     _approve({(1, "claim"): {"note": "claim note"}, (1, "B"): {"note": "row note"}})
     result = tp.run_finalize(MEMO, run_date=DATE)
-    assert result["problems"] == [] and result["written"] == REVIEWED
+    assert result["problems"] == []
+    assert result["written"] == REVIEWED
     df = _reviewed()
     assert list(df.columns) == list(tp._REVIEWED_COLUMNS)
     got = [(r.claim_text, r.chunk_id, r.found, r.tag, r.tag_draft, r.tag_rationale)
@@ -570,7 +573,8 @@ def test_run_finalize_writes_rows_tags_and_rationale(memo):
     assert df["human_reviewed"].eq(True).all()
     assert df.loc[3, "evidence_span"] == "=SUM(A1) looks like a formula"       # text, not a formula
     assert df.loc[0, "chunk_text"] == CHUNKS["d.pdf_2"]["chunk_text"]
-    assert df.loc[0, "claim_id"] == _cid(C1) and df.loc[0, "bm25_score"] == 1.5
+    assert df.loc[0, "claim_id"] == _cid(C1)
+    assert df.loc[0, "bm25_score"] == 1.5
     assert (result["verdicts_changed"], result["marks_changed"]) == (1, 1)
 
 
@@ -590,7 +594,9 @@ def test_run_finalize_human_added_rows_and_quote_marks(memo, caplog):
     row = c2.iloc[0]
     assert (row["chunk_id"], row["found"], row["tag"], row["evidence_span"]) == \
         ("d.pdf_5", True, "extractive", " ".join(_only_in("d.pdf_5").split()))
-    assert pd.isna(row["tag_draft"]) and pd.isna(row["bm25_score"]) and pd.isna(row["confidence"])
+    assert pd.isna(row["tag_draft"])
+    assert pd.isna(row["bm25_score"])
+    assert pd.isna(row["confidence"])
     assert row["tag_rationale"] == (f"human-added {DATE}: quote '{' '.join(_only_in('d.pdf_5').split())}'; "
                                     f"verdict 'stated directly'; note: found it; note: page 4")
     assert "claim 1: chunk d.pdf_2 marked by quote (1 chunk)" in caplog.text
@@ -618,7 +624,8 @@ def test_run_finalize_keeps_every_note_typed_on_a_plus_row(memo):
 def test_run_finalize_with_problems_writes_nothing_and_logs_each(memo, caplog):
     with caplog.at_level("INFO", logger="tag"):
         result = tp.run_finalize(MEMO, run_date=DATE)
-    assert len(result["problems"]) == 4 and result["written"] is None
+    assert len(result["problems"]) == 4
+    assert result["written"] is None
     assert not os.path.exists("reviewed")
     assert "MEMO-T: row 10 (claim 3): VERDICT is still 'draft failed'" in caplog.text
     assert "MEMO-T: refused — 4 problem(s); nothing written" in caplog.text
@@ -712,8 +719,9 @@ def test_write_reviewed_failed_write_leaves_no_file(tmp_path, monkeypatch):
         raise OSError("disk full")
 
     monkeypatch.setattr(tp, "export_for_review", half_write)
+    df = pd.DataFrame(columns=list(tp._REVIEWED_COLUMNS))
     with pytest.raises(OSError, match="disk full"):
-        tp._write_reviewed(pd.DataFrame(columns=list(tp._REVIEWED_COLUMNS)), path)
+        tp._write_reviewed(df, path)
     assert os.listdir(tmp_path) == []
 
 

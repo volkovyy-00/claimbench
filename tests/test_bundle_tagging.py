@@ -212,7 +212,8 @@ def test_build_bundle_collapses_whitespace():
     chunks_by_id, documents = _index(text)
     b = tp.build_bundle("claim-1", ["d.pdf_1"], chunks_by_id, documents)[0]
     for key in ("text", "before", "after"):
-        assert "\n" not in b[key] and "  " not in b[key], key
+        assert "\n" not in b[key], key
+        assert "  " not in b[key], key
         assert b[key].strip() == b[key], key
 
 
@@ -249,7 +250,8 @@ def test_build_bundle_prompt_fills_every_slot():
     assert "[A] document: x.pdf\n  before: BEFORE ONE\n  PASSAGE: PIECE ONE\n  after: AFTER ONE" in p
     assert "[B] document: y.pdf\n  before: \n  PASSAGE: PIECE TWO\n  after: AFTER TWO" in p
     assert p.index("[A] document") < p.index("[B] document")
-    assert "x.pdf_1" not in p and "y.pdf_7" not in p          # labels only, never chunk_ids
+    assert "x.pdf_1" not in p                                 # labels only, never chunk_ids
+    assert "y.pdf_7" not in p
     assert p.rstrip().endswith('the numbers used"}')
 
 
@@ -337,7 +339,8 @@ def test_draft_claim_marks_draft_failed_after_two_bad_attempts(monkeypatch):
     assert out["needed_chunk_ids"] == []
     assert out["attempts"] == 2
     assert out["reason"].startswith("DRAFT FAILED: ")
-    assert "Expecting value" in out["reason"] and "verdict" in out["reason"]
+    assert "Expecting value" in out["reason"]
+    assert "verdict" in out["reason"]
     assert len(calls) == 2                                  # never a third call
 
 
@@ -728,7 +731,8 @@ def test_review_sheet_rows_and_values(tmp_path, monkeypatch):
     assert [r["chunk_count"] for r in recs] == [2, None, None, None, None, 0, None, None, 1, None, None, None]
     # and the memo's PDFs draft read (sorted doc_ids), so finalize can tell if they changed
     sources = tp._source_docs({"d.pdf": DOC_TEXT})
-    assert sources.startswith("d.pdf (") and len(sources) == len("d.pdf (") + 12 + 1   # name + text fingerprint
+    assert sources.startswith("d.pdf (")
+    assert len(sources) == len("d.pdf (") + 12 + 1            # name + text fingerprint
     assert [r["source_docs"] for r in recs] == [sources, None, None, None, None, sources, None, None,
                                                 sources, None, None, None]
 
@@ -793,8 +797,10 @@ def test_review_sheet_hidden_columns_dropdowns_and_fill(tmp_path, monkeypatch):
     verdict, checked = get_column_letter(col["verdict_needed"]), get_column_letter(col["checked"])
     lists = {dv.formula1: dv for dv in ws.data_validations.dataValidation}
     verdict_dv, yes_dv = lists['"stated directly,needs combining,not supported"'], lists['"yes"']
-    assert f"{verdict}2" in verdict_dv and f"{checked}2" in yes_dv      # claim row
-    assert f"{verdict}3" in yes_dv and f"{verdict}5" in yes_dv          # chunk row, add row
+    assert f"{verdict}2" in verdict_dv                        # claim row
+    assert f"{checked}2" in yes_dv
+    assert f"{verdict}3" in yes_dv                             # chunk row
+    assert f"{verdict}5" in yes_dv                             # add row
     assert f"{verdict}3" not in verdict_dv
 
     assert ws["A2"].fill.fgColor.rgb.endswith(tp._CLAIM_FILL)           # claim row is blue
@@ -876,7 +882,8 @@ def test_run_draft_writes_sheet_and_summary(tmp_path, monkeypatch, caplog):
     assert counts == {"written": 1, "skipped": 0, "failed": 0}
     assert calls == [(C1, "Acme Ltd", ["d.pdf_2", "d.pdf_0"], CLIENT), (C2, "Acme Ltd", [], CLIENT)]
     sheet = tmp_path / "review" / f"{MEMO}.xlsx"
-    assert sheet.exists() and not list((tmp_path / "review").glob("*.tmp"))
+    assert sheet.exists()
+    assert not list((tmp_path / "review").glob("*.tmp"))
     assert f"{MEMO}: written (1 drafted, 1 with no pieces, 0 draft failed)" in caplog.text
     recs = _sheet_records(str(sheet))
     assert [r["verdict_needed"] for r in recs if r["row_kind"] == "claim"] == ["stated directly", "not supported"]
@@ -947,7 +954,8 @@ def test_run_draft_save_problem_is_counted_and_later_memos_still_run(tmp_path, m
     expected = {"written": 0, "skipped": 1, "failed": 0}
     expected[outcome] += 1
     assert counts == expected
-    assert f"{MEMO}: {outcome} — " in caplog.text and detail in caplog.text
+    assert f"{MEMO}: {outcome} — " in caplog.text
+    assert detail in caplog.text
     assert "MEMO-LATER: skipped" in caplog.text                     # the run went on
 
 
@@ -1080,7 +1088,8 @@ def test_main_draft_all_skipped_needs_no_credentials(tmp_path, monkeypatch):
     monkeypatch.setattr(tp, "run_draft",
                         lambda plan, client: seen.append(client) or {"written": 0, "skipped": 1, "failed": 0})
     tp._main(["tag_pipeline.py", "draft"])
-    assert built == [] and seen == [None]
+    assert built == []
+    assert seen == [None]
 
 
 def test_main_draft_memo_with_no_found_chunks_needs_no_credentials(tmp_path, monkeypatch):
