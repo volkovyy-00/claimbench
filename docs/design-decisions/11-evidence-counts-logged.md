@@ -1,7 +1,7 @@
 # Design decision 11 — full narrative
 
 Split out of `CLAUDE.md` to keep that file's per-session load down; the
-condensed rule lives there under design decision 11. This file holds the
+condensed rule now lives in `.claude/rules/golden-set-pipeline.md` under design decision 11. This file holds the
 full text of that entry as it stood before the split.
 
 ---

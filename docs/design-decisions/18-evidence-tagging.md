@@ -1,7 +1,7 @@
 # Design decision 18 — full narrative
 
 Split out of `CLAUDE.md` to keep that file's per-session load down; the
-condensed rule and current residual live there under design decision 18.
+condensed rule and current residual now live in `.claude/rules/tag-pipeline.md` under design decision 18.
 Design: `docs/superpowers/specs/2026-09-13-tag-pipeline-v2-bundle-design.md`
 (gitignored; its §12–§13 addenda override earlier sections). Live results:
 `docs/prompt-verification-log.md` → "tag_pipeline v2 — bundle mode" (and

@@ -58,39 +58,39 @@ review between them (design decision 18):
   (gitignored; the §12–§13 addenda override earlier sections). Acceptance
   record: `docs/prompt-verification-log.md` → "tag_pipeline v2 — bundle mode".
 
-## Design decision 18
+## Non-obvious design decisions
 
-**Evidence tagging drafts one verdict per claim, and `tag` is written
-only from a human-CHECKED review sheet** (`tag_pipeline.py`). `build`
-decides *whether* a chunk is evidence (`found`); tagging decides *how*.
-`finalize` derives row tags mechanically from the user's checked answers
-(needed + stated directly → `extractive`, needed + needs combining →
-`synthesized`, else `unverifiable`), so the eval's claim bucket (any
-extractive → EXTRACTIVE, else any synthesized → SYNTHESIZED, else
-UNVERIFIABLE) reproduces the verdict exactly. Per claim, not per row,
-because `synthesized` ("supports the claim only together with other
-chunks") can't be judged from one row — the row-level v1 never cleared
-its bars and was removed.
+18. **Evidence tagging drafts one verdict per claim, and `tag` is written
+    only from a human-CHECKED review sheet** (`tag_pipeline.py`). `build`
+    decides *whether* a chunk is evidence (`found`); tagging decides *how*.
+    `finalize` derives row tags mechanically from the user's checked answers
+    (needed + stated directly → `extractive`, needed + needs combining →
+    `synthesized`, else `unverifiable`), so the eval's claim bucket (any
+    extractive → EXTRACTIVE, else any synthesized → SYNTHESIZED, else
+    UNVERIFIABLE) reproduces the verdict exactly. Per claim, not per row,
+    because `synthesized` ("supports the claim only together with other
+    chunks") can't be judged from one row — the row-level v1 never cleared
+    its bars and was removed.
 
-**Residual: chunk recall 73.6% against a ≥80% bar, accepted explicitly
-by the user** (the other 7 of 8 pre-registered MEMO-004 bars passed).
-Misses sit on claims computed from a table; the cost is review time, not
-a wrong tag. Changing `_BUNDLE_MODEL`, `_BUNDLE_PROMPT` or
-`_BUNDLE_MAX_TOKENS` voids this result.
+    **Residual: chunk recall 73.6% against a ≥80% bar, accepted explicitly
+    by the user** (the other 7 of 8 pre-registered MEMO-004 bars passed).
+    Misses sit on claims computed from a table; the cost is review time, not
+    a wrong tag. Changing `_BUNDLE_MODEL`, `_BUNDLE_PROMPT` or
+    `_BUNDLE_MAX_TOKENS` voids this result.
 
-**The review sheet is verified, not trusted.** `finalize` re-checks
-every hidden id, chunk text, chunk-row count and PDF fingerprint against
-the claims file and the rebuilt chunk index, lists every problem with
-sheet row numbers, and writes nothing until there are none. Residuals:
-a row re-pointed in every visible and hidden cell to another chunk
-passes; a sheet lacking `chunk_count`/`source_docs` (MEMO-004's) lets a
-deleted last chunk row or changed PDFs through with only a warning.
+    **The review sheet is verified, not trusted.** `finalize` re-checks
+    every hidden id, chunk text, chunk-row count and PDF fingerprint against
+    the claims file and the rebuilt chunk index, lists every problem with
+    sheet row numbers, and writes nothing until there are none. Residuals:
+    a row re-pointed in every visible and hidden cell to another chunk
+    passes; a sheet lacking `chunk_count`/`source_docs` (MEMO-004's) lets a
+    deleted last chunk row or changed PDFs through with only a warning.
 
-**Method lessons from v1, binding on any prompt change here:**
-pre-register model, prompt and bars before looking at data; label blind
-first; never tune against a reference re-adjudicated each round; row
-identity is `(claim_id, chunk_id)`, never `chunk_id` alone.
+    **Method lessons from v1, binding on any prompt change here:**
+    pre-register model, prompt and bars before looking at data; label blind
+    first; never tune against a reference re-adjudicated each round; row
+    identity is `(claim_id, chunk_id)`, never `chunk_id` alone.
 
-Full narrative — v1's probe, pilot and confirmation round, the bundle
-acceptance test, every `finalize` check with its reason, and the exact
-acceptance dates: `docs/design-decisions/18-evidence-tagging.md`.
+    Full narrative — v1's probe, pilot and confirmation round, the bundle
+    acceptance test, every `finalize` check with its reason, and the exact
+    acceptance dates: `docs/design-decisions/18-evidence-tagging.md`.

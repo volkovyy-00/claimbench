@@ -75,8 +75,8 @@ lives in this file's `.claude/rules/*.md` companions, not README.
 
 - `.env` (real credentials, never read/print its contents) holds
   `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` — set to OpenRouter +
-  `openai/gpt-4.1-mini` on 2026-09-22 (deliberate). It was
-  `openai/gpt-oss-120b`, a reasoning model: that's why `call_llm` sets
+  `openai/gpt-4.1-mini`, deliberately switched from a reasoning model
+  (`openai/gpt-oss-120b`): that's why `call_llm` sets
   `max_tokens` explicitly (design decision 4), which stays the right
   guard if a reasoning model is ever set here again. Design decisions 5,
   9, 15 and 16 record prompt behaviour measured under the *older* model,

@@ -51,32 +51,32 @@ enforces that structurally.
 - Design: `docs/superpowers/specs/2026-09-10-retrieval-eval-harness-design.md`
   (gitignored).
 
-## Design decision 19
+## Non-obvious design decisions
 
-**The eval scores claims against human-tagged evidence, and refuses
-rather than scoring around a problem** (`eval_pipeline.py`). The relevant
-set is `found` **and** a tag of `extractive`/`synthesized` (evidence
-schema: `.claude/rules/golden-set-pipeline.md`'s DataFrame schema) —
-`found` is the pipeline's guess, the tag the human verdict. Unverifiable
-claims leave the coverage denominator and are reported as a re-review
-worklist (`claim_queries.parquet`) instead of "absent from the sources":
-the golden set was built with lexical BM25 (decision 7).
+19. **The eval scores claims against human-tagged evidence, and refuses
+    rather than scoring around a problem** (`eval_pipeline.py`). The relevant
+    set is `found` **and** a tag of `extractive`/`synthesized` (evidence
+    schema: `.claude/rules/golden-set-pipeline.md`'s DataFrame schema) —
+    `found` is the pipeline's guess, the tag the human verdict. Unverifiable
+    claims leave the coverage denominator and are reported as a re-review
+    worklist (`claim_queries.parquet`) instead of "absent from the sources":
+    the golden set was built with lexical BM25 (decision 7).
 
-A hit is the same `chunk_id` **or** decision 1's rule (`_same_evidence`
-— full rule in `.claude/rules/golden-set-pipeline.md`), checked one
-direction only against an adjacent chunk's shared-overlap text. A
-human-added row's joined quotes are tested and grouped one by one. Hits
-are computed once at depth 20; k is read off per search phrase, and a
-run is refused unless the results were retrieved with the phrases on
-disk.
+    A hit is the same `chunk_id` **or** decision 1's rule (`_same_evidence`
+    — full rule in `.claude/rules/golden-set-pipeline.md`), checked one
+    direction only against an adjacent chunk's shared-overlap text. A
+    human-added row's joined quotes are tested and grouped one by one. Hits
+    are computed once at depth 20; k is read off per search phrase, and a
+    run is refused unless the results were retrieved with the phrases on
+    disk.
 
-**Residuals:** duplicated source documents cap macro recall at roughly
-50% for a claim cited from only one copy; a handful of golden quotes
-aren't verbatim in their own chunk after normalization, so only that
-chunk (never a neighbour) can hit them; and two golden rows whose quotes
-both span a chunk-overlap boundary stay two separate evidence groups
-under decision 1. None of these are fixed — the report explains each.
+    **Residuals:** duplicated source documents cap macro recall at roughly
+    50% for a claim cited from only one copy; a handful of golden quotes
+    aren't verbatim in their own chunk after normalization, so only that
+    chunk (never a neighbour) can hit them; and two golden rows whose quotes
+    both span a chunk-overlap boundary stay two separate evidence groups
+    under decision 1. None of these are fixed — the report explains each.
 
-Full narrative — the ground-truth and hit-matching rules in full, the
-measured false-hit rate, and the exact residual counts and dates:
-`docs/design-decisions/19-eval-harness-scoring.md`.
+    Full narrative — the ground-truth and hit-matching rules in full, the
+    measured false-hit rate, and the exact residual counts and dates:
+    `docs/design-decisions/19-eval-harness-scoring.md`.

@@ -114,6 +114,9 @@ reads from — a session touching either sibling needs it too.
 
 - `claim_id` is stable per claim (UUID), shared across every row that claim
   produces.
+- `doc_id` is derived from each PDF's filename (`os.path.basename`), never
+  a hand-typed dict key — a demo `doc_id` that didn't match its actual
+  file content can't happen.
 - `chunk_text`/`bm25_score` are pipeline-sourced (that row's own chunk's
   text, and that claim's own BM25 score for it) — `None` on not-found/error
   rows, and intentionally excluded from `import_reviewed`'s overwritable

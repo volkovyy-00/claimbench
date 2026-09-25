@@ -1,7 +1,7 @@
 # Design decision 5 — full narrative
 
 Split out of `CLAUDE.md` to keep that file's per-session load down; the
-condensed rule and current residual live there under design decision 5.
+condensed rule and current residual now live in `.claude/rules/golden-set-pipeline.md` under design decision 5.
 This file holds the full observed-failure narrative behind it. Live
 verification run-by-run: `docs/prompt-verification-log.md` → the
 "Embedded worked examples" and "Decision 5 / ticket 007" sections.
