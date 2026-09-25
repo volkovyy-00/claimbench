@@ -40,7 +40,11 @@ claim_id encodes it), never from the sheet cell.
 
 Hits are computed once at depth 20 and every k read off by best rank.
 Each hit records the golden row it matched, so the report quotes the
-evidence actually found. k is per search phrase (18–43 distinct passages
+evidence actually found, and each group records its golden chunk ids
+(EV-1), so the claims page shows every quote under its own group's rank
+without grouping again — regrouping at report time could, after a change
+to the grouping code, move a quote while every group size and hit row
+stayed the same. k is per search phrase (18–43 distinct passages
 per section at k=5 on the real set, 2026-09-23); runs record phrase
 counts and the report warns when a baseline's differ. A run is refused
 unless the results were retrieved with the phrases on disk. MRR (query =
@@ -63,8 +67,9 @@ separate evidence groups (correct). When both copies were cited, coverage
 is unaffected but a claim found in only one copy can reach at most 50%
 macro recall; when the reviewer cited only one copy, a retrieved chunk
 from the other is never credited (a miss, and against precision) — 0 such
-claims on the 2026-09-23 sheets. Explained in the report's Details note,
-deliberately not fixed.
+claims on the 2026-09-23 sheets. Deliberately not fixed. Since EV-1 the
+report shows no macro recall (it stays in the run's `metrics.parquet`),
+so no page explains this cap.
 
 **Quotes not verbatim in their chunk.** 20 of 169 golden quotes
 (2026-09-23) are not in their own chunk's text after `_normalize_span`

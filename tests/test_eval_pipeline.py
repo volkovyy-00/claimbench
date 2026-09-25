@@ -19,7 +19,10 @@ d.pdf_5. So dense covers 0/3 at k=1 and 2/3 from k=2 on.
 import ast
 import os
 import re
+import sys
+import types
 import uuid
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -789,8 +792,22 @@ def _run(label="a", now=NOW):
     return ep.load_run(os.path.basename(ep.score_run(label, now=now)))
 
 
+def _pages(run, k=5):
+    """The three pages of a run at dense, k — summary, claims, re-review."""
+    return [ep.render_summary(run, k=k), ep.render_claims(run, k=k), ep.render_rereview(run)]
+
+
+def _with_second_evidence_row_for_c1():
+    """C1 gets a second evidence row listed FIRST (d.pdf_7, which dense
+    retrieves at rank 5): two pieces of evidence, group 0 = d.pdf_7,
+    group 1 = d.pdf_1 (the one dense finds at rank 2 via its neighbour)."""
+    rows = _reviewed_rows()
+    rows.insert(0, _row(BP, C1, "d.pdf_7", "Plant count", "extractive"))
+    _write_reviewed(rows)
+
+
 def test_report_headline_counts_and_cohort_split(world):
-    page = ep.render_report(_run(), method="dense", k=2)
+    page = ep.render_summary(_run(), method="dense", k=2)
     assert "67% (2/3)" in page      # claim coverage
     assert "100% (2/2)" in page     # extractive
     assert "0% (0/1)" in page       # synthesized
@@ -824,46 +841,118 @@ def test_report_counts_passages_of_sections_without_verifiable_claims(world):
     m = ep._metric_row(run.metrics, "section", MEMO, hist, "dense", 5)
     assert (m.claims, m.passages) == (0, 3)
     assert pd.isna(m.coverage)
-    page = ep.render_report(run, method="dense", k=5)
+    page = ep.render_summary(run, method="dense", k=5)
     assert "<div class=\"v\">10</div><div class=\"l\">across 3 sections" in page   # 5 + 2 + 3
     assert f"<td>{hist}</td><td>n/a</td><td>3</td>" in page
     assert re.search(rf"<th>{MEMO}</th><th>all</th><td>.*?</td><td>10</td>", page)   # memo row = its sections' sum
     # keyword returned passages for one section only; the tile counts that one
-    assert "<div class=\"v\">1</div><div class=\"l\">across 1 sections" in ep.render_report(_run("b"), method="keyword")
+    assert "<div class=\"v\">1</div><div class=\"l\">across 1 sections" in ep.render_summary(_run("b"), method="keyword")
 
 
-def test_rereview_passages_end_in_an_ellipsis_only_when_cut(world):
+def test_summary_opens_with_the_traced_examples(world):
+    page = ep.render_summary(_run())
+    assert page.index("<h2>Traced examples</h2>") < page.index('<div class="tiles">')
+
+
+def test_summary_folds_the_traced_quotes(world):
+    page = ep.render_summary(_run(), k=2)
+    traced = page.split("<h2>Traced examples</h2>")[1].split("<h2>")[0]
+    assert "<details><summary>" in traced
+
+
+def test_summary_leaves_the_candidates_to_the_rereview_page(world):
+    page = ep.render_summary(_run())
+    assert "Intro page of the annual report." not in page   # a candidate passage
+
+
+def test_claims_page_lists_every_verifiable_claim_once_in_claims_file_order(world):
+    page = ep.render_claims(_run(), k=2)
+    assert [page.count(c) for c in (C1, C2, C4)] == [1, 1, 1]
+    assert page.index(C1) < page.index(C2) < page.index(C4)
+
+
+def test_claims_page_leaves_out_unverifiable_claims(world):
+    page = ep.render_claims(_run(), k=2)
+    assert C3 not in page
+    assert C5 not in page
+
+
+def test_claims_page_headline_gives_each_methods_best_rank(world):
+    page = ep.render_claims(_run(), k=2)
+    assert "dense: rank 2 · keyword: not found · both: rank 3" in page         # C1
+    assert "dense: not found · keyword: rank 1 · both: rank 2" in page         # C2
+
+
+def test_claims_page_gives_the_miss_reason_at_the_chosen_k(world):
+    page = ep.render_claims(_run(), k=2)
+    assert "missed at k = 2: found by another method at this depth" in page   # C2
+    assert page.count("retrieved at k = 2") == 2                               # C1, C4
+
+
+def test_claims_page_ranks_each_piece_of_evidence_on_its_own(world):
+    _with_second_evidence_row_for_c1()
+    page = ep.render_claims(_run(), k=2)
+    assert "2 pieces of evidence, 2 quotes" in page
+    first = page.index("dense: rank 5 · keyword: not found · both: not found")    # piece 1: d.pdf_7
+    assert first < page.index("Plant count (d.pdf_7)") < page.index("sells widgets (d.pdf_1)")
+
+
+def test_rereview_page_lists_every_candidate_under_its_claim_strongest_first(world):
+    page = ep.render_rereview(_run())
+    order = [page.index(s) for s in (f"<b>1.</b> {C3}", "0.800 · d.pdf_0", "0.600 · d.pdf_6",
+                                     f"<b>2.</b> {C5}", "0.700 · d.pdf_0")]
+    assert order == sorted(order)
+
+
+def test_rereview_page_folds_each_candidate(world):
+    page = ep.render_rereview(_run())
+    assert page.count("<details>") == 3
+
+
+def test_rereview_page_shows_every_passage_in_full(world):
     run = _run()
-    page = ep.render_report(run)
-    assert "Intro page of the annual report. (d.pdf_0)" in page
-    assert "…" not in page.split("<h2>Re-review candidates</h2>")[1].split("<h2>")[0]
     run.candidates.loc[0, "chunk_text"] = "x" * 400
-    page = ep.render_report(run)
-    assert "x" * 300 + "… (" in page
+    page = ep.render_rereview(run)
+    assert "x" * 400 in page
+    assert "…" not in page
 
 
-def test_report_is_self_contained(world):
-    page = ep.render_report(_run())
-    for banned in ("http://", "https://", "<script", "<link", "@import"):
-        assert banned not in page
-    assert page.count("<svg") == 1
+def test_rereview_page_says_it_is_the_same_for_every_method_and_k(world):
+    assert "the same for every search method and k" in ep.render_rereview(_run())
 
 
-def test_report_pairs_the_unverifiable_count_with_rereview(world):
-    page = ep.render_report(_run())
+def test_report_pages_are_self_contained(world):
+    for page in _pages(_run()):
+        for banned in ("http://", "https://", "<script", "<link", "@import"):
+            assert banned not in page
+
+
+def test_only_the_summary_draws_the_chart(world):
+    assert [page.count("<svg") for page in _pages(_run())] == [1, 0, 0]
+
+
+@pytest.mark.parametrize("render, listed", [("render_summary", "on the Re-review page"),
+                                            ("render_rereview", "below")])
+def test_unverifiable_count_comes_with_the_rereview_sentence(world, render, listed):
+    page = getattr(ep, render)(_run())
     assert "2 of 5 claims were not found in the sources by this process" in page
     assert "For 2 of them" in page
-    assert "3 listed under Re-review candidates" in page
-    assert "For each" not in page
+    assert f"3 listed {listed}." in page
     assert "absent from the sources" not in page
+
+
+def test_claims_page_shows_no_unverifiable_count(world):
+    assert "not found in the sources" not in ep.render_claims(_run())
 
 
 def test_report_escapes_every_text(world):
     run = _run()
     run.claims.loc[run.claims.claim_text == C1, "claim_text"] = "<script>alert(1)</script>"
-    page = ep.render_report(run, k=2)
-    assert "&lt;script&gt;" in page
-    assert "<script" not in page
+    run.candidates.loc[0, "chunk_text"] = "<script>alert(2)</script>"
+    for page in _pages(run, k=2):
+        assert "<script" not in page
+    assert "&lt;script&gt;alert(1)" in ep.render_claims(run, k=2)
+    assert "&lt;script&gt;alert(2)" in ep.render_rereview(run)
 
 
 def test_report_shows_a_delta_against_a_baseline(world):
@@ -875,7 +964,7 @@ def test_report_shows_a_delta_against_a_baseline(world):
     _write_results(rows)
     _rephrase("plants")
     current = _run("edited", NOW + timedelta(seconds=1))
-    page = ep.render_report(current, k=2, baseline=base)
+    page = ep.render_summary(current, k=2, baseline=base)
     assert "100% (3/3)" in page
     assert "+33 pts" in page
     assert base.run_id in page
@@ -889,30 +978,26 @@ def test_report_refuses_an_incomparable_baseline(world):
     _write_reviewed(rows)
     current = _run("retagged", NOW + timedelta(seconds=1))
     with pytest.raises(ep.EvalInputError, match="golden set"):
-        ep.render_report(current, baseline=base)
+        ep.render_summary(current, baseline=base)
 
 
 def test_traced_example_quotes_the_evidence_that_was_found(world):
-    # C1 gets a second evidence row listed FIRST (d.pdf_7); the hit is still on
-    # d.pdf_1's quote via the neighbour d.pdf_2. The report must quote d.pdf_1.
-    rows = _reviewed_rows()
-    rows.insert(0, _row(BP, C1, "d.pdf_7", "Plant count", "extractive"))
-    _write_reviewed(rows)
-    page = ep.render_report(_run(), k=2)
+    # the hit is on d.pdf_1's quote via the neighbour d.pdf_2, though C1's
+    # first evidence row is d.pdf_7. The summary must quote d.pdf_1.
+    _with_second_evidence_row_for_c1()
+    page = ep.render_summary(_run(), k=2)
     assert "sells widgets (d.pdf_1)" in page
     assert "Plant count (d.pdf_7)" not in page
     assert "the neighbouring passage d.pdf_2, which contains this quote" in page
 
 
-def test_report_keeps_mrr_off_the_page(world):
-    page = ep.render_report(_run())
-    assert "<th>mrr</th>" not in page
-    assert "MRR is stored in the run but not shown" in page
-
-
-def test_report_explains_duplicate_documents_under_macro_recall(world):
-    page = ep.render_report(_run())
-    assert "duplicate source documents" in page.split("<h2>Details</h2>")[1]
+def test_report_shows_no_raw_metrics(world):
+    # MRR rises with the number of phrases and is not comparable between
+    # sections; precision and macro recall need notes the pages no longer carry.
+    # All stay in metrics.parquet, none on a page.
+    for page in _pages(_run()):
+        for banned in ("<h2>Details</h2>", "mrr", "MRR", "precision", "recall_macro", "macro recall"):
+            assert banned not in page
 
 
 def test_report_warns_when_the_phrase_count_changed(world):
@@ -923,7 +1008,7 @@ def test_report_warns_when_the_phrase_count_changed(world):
         yaml.safe_dump({"memo_id": MEMO, "source_folder": "src",
                         "sections": {BP: ["business profile", "second"], OWN: ["shareholders"]}}, f)
     current = _run("more", NOW + timedelta(seconds=1))
-    page = ep.render_report(current, baseline=base)
+    page = ep.render_summary(current, baseline=base)
     assert "different number of search phrases in 1 section(s)" in page
 
 
@@ -936,7 +1021,8 @@ def test_scoring_and_reporting_never_touch_the_network(world, monkeypatch):
 
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
-    ep.render_report(_run(), baseline=None)
+    _run()
+    ep.write_report("latest")
 
 
 def test_miss_taxonomy(world):
@@ -948,23 +1034,141 @@ def test_miss_taxonomy(world):
     }
 
 
-def test_render_rejects_an_unknown_method_or_k(world):
-    run = _run()
+@pytest.mark.parametrize("render", ["render_summary", "render_claims"])
+def test_render_rejects_an_unknown_method(world, render):
     with pytest.raises(ValueError, match="method"):
-        ep.render_report(run, method="semantic")
+        getattr(ep, render)(_run(), method="semantic")
+
+
+@pytest.mark.parametrize("render", ["render_summary", "render_claims"])
+def test_render_rejects_an_unknown_k(world, render):
     with pytest.raises(ValueError, match="k"):
-        ep.render_report(run, k=21)
+        getattr(ep, render)(_run(), k=21)
 
 
-def test_report_command_and_show_report_write_files(world, capsys):
+def test_scoring_records_each_pieces_chunk_ids(world):
+    _with_second_evidence_row_for_c1()
+    hits = _run().claim_hits    # read back from disk
+    c1 = hits[(hits.claim_id == cid(BP, C1)) & (hits.method == "dense")].sort_values("group")
+    assert [list(ids) for ids in c1["group_chunk_ids"]] == [["d.pdf_7"], ["d.pdf_1"]]
+
+
+def test_claims_page_reads_the_pieces_from_the_run_not_a_regrouping(world, monkeypatch):
+    # The grouping code changes after the run was scored: the page must still
+    # show each quote under the rank scoring gave its own piece.
+    _with_second_evidence_row_for_c1()
+    run = _run()
+    regroup = ep._evidence_groups
+    monkeypatch.setattr(ep, "_evidence_groups", lambda golden: regroup(golden)[::-1])
+    page = ep.render_claims(run, k=2)
+    order = [page.index(s) for s in ("piece 1 — dense: rank 5", "Plant count (d.pdf_7)",
+                                     "piece 2 — dense: rank 2", "sells widgets (d.pdf_1)")]
+    assert order == sorted(order)
+
+
+def _drop_piece_members_on_disk(run_id):
+    """Make the stored run look like one scored before claim_hits recorded
+    each piece's chunk ids."""
+    path = os.path.join("eval_runs", run_id, "claim_hits.parquet")
+    pd.read_parquet(path).drop(columns=["group_chunk_ids"]).to_parquet(path, index=False)
+
+
+def test_claims_page_refuses_a_run_scored_without_piece_members(world):
+    run = _run()
+    _drop_piece_members_on_disk(run.run_id)
+    with pytest.raises(ep.EvalInputError, match="claims page needs"):
+        ep.render_claims(ep.load_run(run.run_id))
+
+
+def test_a_run_scored_without_piece_members_still_serves_as_a_baseline(world):
+    # A baseline reads only meta and metrics; re-scoring could not recreate it
+    # once the retrieval results have moved on.
+    base = _run("base", NOW)
+    _drop_piece_members_on_disk(base.run_id)
+    current = _run("again", NOW + timedelta(seconds=1))
+    paths = ep.write_report(current.run_id, baseline_id=base.run_id)
+    assert os.path.basename(paths[0]) == f"report_dense_k5_vs_{base.run_id}.html"
+
+
+def test_claims_page_refuses_pieces_that_do_not_match_the_evidence(world):
+    _with_second_evidence_row_for_c1()
+    run = _run()
+    run.evidence = run.evidence[run.evidence["chunk_id"] != "d.pdf_7"]
+    with pytest.raises(ep.EvalInputError, match="pieces of evidence"):
+        ep.render_claims(run)
+
+
+def test_a_refused_page_leaves_no_report_files(world):
+    run = _run()
+    _drop_piece_members_on_disk(run.run_id)
+    with pytest.raises(ep.EvalInputError):
+        ep.write_report(run.run_id)
+    assert not [f for f in os.listdir(os.path.join("eval_runs", run.run_id)) if f.endswith(".html")]
+
+
+def test_report_pages_link_to_each_other_by_relative_name(world):
+    _run()
+    summary, claims, rereview = (Path(p).read_text(encoding="utf-8") for p in ep.write_report("latest"))
+    assert 'href="report_dense_k5_claims.html"' in summary
+    assert 'href="report_rereview.html"' in summary
+    assert 'href="report_dense_k5.html"' in claims
+    assert 'href="report_rereview.html"' in claims
+    assert "href=" not in rereview
+
+
+def test_claims_page_links_back_to_the_summary_with_its_baseline(world):
+    base = _run("base", NOW)
+    current = _run("again", NOW + timedelta(seconds=1))
+    paths = ep.write_report(current.run_id, baseline_id=base.run_id)
+    stem = f"report_dense_k5_vs_{base.run_id}"
+    assert [os.path.basename(p) for p in paths] == [f"{stem}.html", f"{stem}_claims.html", "report_rereview.html"]
+    assert f'href="{stem}.html"' in Path(paths[1]).read_text(encoding="utf-8")
+
+
+def test_summary_without_page_names_has_no_links(world):
+    assert "href=" not in ep.render_summary(_run())
+
+
+def test_show_report_displays_the_summary_without_links(world, monkeypatch):
+    shown = []
+    display = types.ModuleType("IPython.display")
+    display.HTML = str
+    display.display = shown.append
+    monkeypatch.setitem(sys.modules, "IPython", types.ModuleType("IPython"))
+    monkeypatch.setitem(sys.modules, "IPython.display", display)
+    _run()
+    ep.show_report()
+    assert len(shown) == 1
+    assert "<h2>Traced examples</h2>" in shown[0]
+    assert "href=" not in shown[0]
+
+
+def test_report_command_writes_the_three_pages(world, capsys):
     run = _run()
     ep._main(["eval_pipeline.py", "report", "latest"])
-    assert os.path.exists(os.path.join("eval_runs", run.run_id, "report_dense_k5.html"))
-    path = ep.show_report(method="both", k=3)
-    assert path.endswith("report_both_k3.html")
-    assert os.path.exists(path)
+    out = capsys.readouterr().out
+    for name in ("report_dense_k5.html", "report_dense_k5_claims.html", "report_rereview.html"):
+        assert os.path.exists(os.path.join("eval_runs", run.run_id, name))
+        assert name in out
+
+
+def test_show_report_writes_and_prints_the_three_pages(world, capsys):
+    _run()
+    paths = ep.show_report(method="both", k=3)
+    assert [os.path.basename(p) for p in paths] == ["report_both_k3.html", "report_both_k3_claims.html",
+                                                     "report_rereview.html"]
+    assert all(os.path.exists(p) for p in paths)
+    assert "report_both_k3_claims.html" in capsys.readouterr().out
+
+
+def test_report_command_takes_method_and_k(world):
+    run = _run()
     ep._main(["eval_pipeline.py", "report", "latest", "--method=keyword", "--k=7"])
-    assert os.path.exists(os.path.join("eval_runs", run.run_id, "report_keyword_k7.html"))
+    assert os.path.exists(os.path.join("eval_runs", run.run_id, "report_keyword_k7_claims.html"))
+
+
+def test_report_command_refuses_bad_flags(world):
+    _run()
     with pytest.raises(SystemExit, match="usage"):
         ep._main(["eval_pipeline.py", "report", "latest", "--colour=red"])
     with pytest.raises(SystemExit, match="method"):
@@ -1155,7 +1359,7 @@ def test_a_human_added_row_is_grouped_by_its_quotes(world):
     _, _, claim_hits, _, _ = _scored()
     c1 = claim_hits[(claim_hits["claim_id"] == cid(BP, C1)) & (claim_hits["method"] == "dense")]
     assert len(c1) == 1
-    assert c1.iloc[0]["group_size"] == 2
+    assert len(c1.iloc[0]["group_chunk_ids"]) == 2
 
 
 def test_a_reviewed_sheet_with_an_invalid_name_is_warned_about(world, caplog):

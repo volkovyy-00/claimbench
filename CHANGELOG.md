@@ -13,6 +13,31 @@ including most of 0.3.0, cite none. Tags start at `v0.3.0`: 0.1.0 and
 here. Pre-1.0 — the CLI/API may break between
 minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 
+## [0.4.0] - 2026-09-25
+
+### Changed
+
+- `python eval_pipeline.py report` writes three linked pages instead of
+  one: the summary (same file name as before, now opening with the traced
+  examples), a claims page (`…_claims.html`) that traces every verifiable
+  claim with each piece of evidence and its rank per method, and
+  `report_rereview.html`, which lists every re-review candidate in full
+  (before, only the first 25, cut to 300 characters). `write_report` and
+  `show_report` return the three paths, summary first; `render_report` is
+  replaced by `render_summary`, `render_claims` and `render_rereview`.
+  (EV-1)
+- `score` records each evidence group's chunk ids in `claim_hits.parquet`
+  (new column `group_chunk_ids`, replacing `group_size`), which the claims
+  page reads. `report` refuses to report on a run scored before this
+  change (score the current results again: no API calls); such a run still
+  works as a baseline.
+  (EV-1)
+
+### Removed
+
+- The report's Details table and its notes on precision, macro recall and
+  MRR. The numbers stay in each run's `metrics.parquet`. (EV-1)
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

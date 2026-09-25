@@ -104,7 +104,7 @@ python tag_pipeline.py finalize <id>     # -> reviewed/<id>.xlsx
 | `python retrieval_pipeline.py retrieve` | `retrieval/*.yaml`, index | `retrieval_results.parquet`, `.xlsx` |
 | `python retrieval_pipeline.py recheck` | claims files, index | `claim_queries.parquet` |
 | `python eval_pipeline.py score [label]` | reviewed sheets, claims, retrieval results | `eval_runs/<run_id>/` (no API calls) |
-| `python eval_pipeline.py report <run_id\|latest> [baseline] [--method=…] [--k=…]` | a run | `eval_runs/<run_id>/report_*.html` |
+| `python eval_pipeline.py report <run_id\|latest> [baseline] [--method=…] [--k=…]` | a run | `eval_runs/<run_id>/report_*.html` (summary, claims and re-review pages, linked) |
 
 `draft` with no ids drafts every document in the checkpoint. The three
 `retrieval_pipeline.py` commands are an optional retrieval experiment to
@@ -137,7 +137,7 @@ never committed: `memos.yaml`, `claims/`, `sources/`, `review/` and
 | `golden_set_pipeline.py` | Claim extraction and evidence matching (runs as a script or a Jupytext notebook) |
 | `tag_pipeline.py` | Evidence tagging: `draft` and `finalize` |
 | `retrieval_pipeline.py` | Optional retrieval experiment (meaning, keyword and combined search) |
-| `eval_pipeline.py` | Scores retrieval against the golden set; HTML report |
+| `eval_pipeline.py` | Scores retrieval against the golden set; HTML report pages |
 | `tests/` | `pytest` suite (mocked, no API calls) |
 | `.github/workflows/` | CI: lint, type check, tests, SonarCloud |
 | `docs/` | Walkthrough and design notes |

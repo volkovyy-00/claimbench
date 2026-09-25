@@ -292,7 +292,8 @@ def load_ground_truth(memo_id: str, claims_dir: str = "claims", reviewed_dir: st
 # %%
 _K_VALUES = tuple(range(1, _RETRIEVE_DEPTH + 1))
 _CLAIM_HIT_COLUMNS = ["memo_id", "section", "claim_id", "bucket", "method",
-                      "group", "group_size", "best_rank", "best_chunk_id", "best_golden_chunk_id"]
+                      "group", "group_chunk_ids", "best_rank", "best_chunk_id",
+                      "best_golden_chunk_id"]
 _CHUNK_HIT_COLUMNS = ["memo_id", "section", "method", "chunk_id", "best_rank", "golden"]
 _METRIC_COLUMNS = ["scope", "memo_id", "section", "method", "k",
                    "claims", "covered", "coverage",
@@ -559,18 +560,22 @@ def _is_hit(golden, retrieved, golden_text: dict[str, str]) -> bool:
 
 
 def score_claims(gt: GroundTruth, ranked: dict) -> pd.DataFrame:
-    """One row per (verifiable claim, golden evidence group, method): the best
-    rank at which any retrieved chunk hits any row of the group, that
-    retrieved chunk, and the golden row it matched (NaN / None when nothing
-    hits within _RETRIEVE_DEPTH). The golden row is recorded because a claim
-    can have many evidence rows, and the report must quote the one that was
-    actually found, not the claim's first."""
+    """One row per (verifiable claim, golden evidence group, method): the
+    group's golden chunk ids (group_chunk_ids), the best rank at which any
+    retrieved chunk hits any row of the group, that retrieved chunk, and the
+    golden row it matched (NaN / None when nothing hits within
+    _RETRIEVE_DEPTH). The golden row is recorded because a claim can have
+    many evidence rows, and the report must quote the one that was actually
+    found, not the claim's first. The chunk ids are recorded so the claims
+    page shows each quote under its own group's rank without grouping again
+    (a claim never lists a chunk twice, so the ids name its rows)."""
     evidence_by_claim = {c: list(g.itertuples(index=False)) for c, g in gt.evidence.groupby("claim_id")}
     golden_text = dict(zip(gt.judged["chunk_id"], gt.judged["chunk_text"]))
     rows: list[dict] = []
     for claim in gt.claims[gt.claims["bucket"] != "UNVERIFIABLE"].itertuples(index=False):
         golden = evidence_by_claim[claim.claim_id]
         groups = _evidence_groups(golden)
+        group_ids = [[golden[m].chunk_id for m in members] for members in groups]
         for method in _RETRIEVAL_METHODS:
             retrieved = ranked.get((claim.section, method))
             candidates = [] if retrieved is None else list(retrieved.itertuples(index=False))
@@ -583,7 +588,8 @@ def score_claims(gt: GroundTruth, ranked: dict) -> pd.DataFrame:
                 best_rank, best_chunk, best_golden = min(hits) if hits else (None, None, None)
                 rows.append({"memo_id": gt.memo_id, "section": claim.section, "claim_id": claim.claim_id,
                              "bucket": claim.bucket, "method": method, "group": index,
-                             "group_size": len(members), "best_rank": best_rank, "best_chunk_id": best_chunk,
+                             "group_chunk_ids": group_ids[index],
+                             "best_rank": best_rank, "best_chunk_id": best_chunk,
                              "best_golden_chunk_id": best_golden})
     return pd.DataFrame(rows, columns=_CLAIM_HIT_COLUMNS).astype({"best_rank": "float64"})
 
@@ -1106,12 +1112,16 @@ def check_comparable(run: Run, baseline: Run) -> None:
 
 
 # %% [markdown]
-# ## 4. The report — one self-contained HTML page per (run, method, k)
+# ## 4. The report — three linked pages per (run, method, k)
 #
-# Written from run records only: no external asset, no script, opens with no
-# network. Every percentage carries its counts. The unverifiable count never
-# appears without the re-review sentence beside it (spec: "Unverifiable, and
-# its honesty check").
+# A summary for a non-technical audience, a claims page tracing every
+# verifiable claim, and a re-review page listing every candidate (the same
+# for every method and k, so one file per run). Written from run records
+# only: no external asset, no script, opens with no network — a folded quote
+# is plain HTML <details>. Every percentage carries its counts. The
+# unverifiable count never appears without the re-review sentence beside it
+# (spec: "Unverifiable, and its honesty check"). Precision, macro recall and
+# MRR stay in metrics.parquet; no page shows them.
 
 # %%
 _METHOD_LABEL = {"dense": "meaning search (dense)", "keyword": "keyword search (BM25)",
@@ -1120,22 +1130,26 @@ _METHOD_COLOR = {"dense": "#2563eb", "keyword": "#d97706", "both": "#059669"}
 _MISS_CATEGORIES = ("found by another method at this depth",
                     f"found only deeper (by k={_RETRIEVE_DEPTH})",
                     f"not found by any method within {_RETRIEVE_DEPTH}")
-_CANDIDATES_SHOWN = 25
 _TABLE_CLOSE = "</table>"
 _CSS = """
 body{font:15px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1f2937;background:#fafaf9;
      max-width:1040px;margin:0 auto;padding:24px}
 h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px;border-bottom:1px solid #e5e7eb;padding-bottom:4px}
+h3{font-size:15px;margin:20px 0 6px}
 .sub{color:#6b7280;margin:0 0 12px}.frame{background:#eef2ff;border-left:4px solid #6366f1;padding:8px 12px}
+.nav{margin:0 0 12px}.nav a,.nav b{margin-right:16px}
 .tiles{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}.tile{background:#fff;border:1px solid #e5e7eb;
      border-radius:8px;padding:12px 16px;min-width:180px}.tile .v{font-size:26px;font-weight:600}
 .tile .l{color:#6b7280;font-size:13px}.delta{font-size:13px;color:#059669}.delta.neg{color:#dc2626}
 .note{background:#fffbeb;border-left:4px solid #f59e0b;padding:8px 12px}
 table{border-collapse:collapse;width:100%;font-size:13px;background:#fff}
-th,td{border:1px solid #e5e7eb;padding:4px 8px;text-align:left;vertical-align:top}
+th,td{border:1px solid #d1d5db;padding:4px 8px;text-align:left;vertical-align:top}
 th{background:#f3f4f6}.bar{background:#e5e7eb;height:10px;width:160px;display:inline-block;vertical-align:middle}
-.bar span{display:block;height:10px;background:#2563eb}.quote{color:#374151;font-style:italic}
+.bar span{display:block;height:10px;background:#2563eb}.quote{color:#374151;font-style:italic;margin:4px 0}
 .scroll{overflow-x:auto}
+.claim{background:#fff;border-bottom:1px solid #d1d5db;padding:8px 12px}.claim p{margin:0 0 4px}
+.piece{border-top:1px dashed #e5e7eb;padding:4px 0 4px 16px}
+details summary{cursor:pointer;color:#4b5563}
 """
 
 
@@ -1169,6 +1183,69 @@ def miss_taxonomy(run: Run, method: str, k: int) -> pd.DataFrame:
 def _e(value) -> str:
     """HTML-escaped text; control characters pypdf may leave are removed first."""
     return html.escape(_excel_safe(value) if isinstance(value, str) else str(value))
+
+
+def _count(n: int, noun: str) -> str:
+    """'1 quote', '2 quotes'."""
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
+def _check_view(method: str, k: int) -> None:
+    """Refuses a method or k a run does not hold (ValueError)."""
+    if method not in _RETRIEVAL_METHODS:
+        raise ValueError(f"method {method!r}: use one of {', '.join(_RETRIEVAL_METHODS)}")
+    if not 1 <= k <= _RETRIEVE_DEPTH:
+        raise ValueError(f"k={k}: use 1..{_RETRIEVE_DEPTH}")
+
+
+def _page_names(method: str, k: int, baseline_id: str | None) -> dict[str, str]:
+    """The three pages' file names, keyed summary / claims / rereview: the
+    summary report_<method>_k<k>[_vs_<baseline>].html, the claims page the
+    same name ending _claims. The re-review page depends on none of method,
+    k or baseline, so every call names the same file."""
+    stem = f"report_{method}_k{k}" + (f"_vs_{baseline_id}" if baseline_id else "")
+    return {"summary": f"{stem}.html", "claims": f"{stem}_claims.html", "rereview": "report_rereview.html"}
+
+
+def _nav(run: Run, pages: dict[str, str] | None, current: str) -> str:
+    """The link line between the three pages, the current one in bold, the
+    others linked by relative name so a copied run folder keeps working.
+    Empty when `pages` is None — the notebook's inline copy, where a relative
+    link resolves against the notebook, not the run folder, and so is dead."""
+    if pages is None:
+        return ""
+    verifiable = int((run.claims["bucket"] != "UNVERIFIABLE").sum())
+    labels = {"summary": "Summary", "claims": f"Claims ({verifiable} verifiable)",
+              "rereview": f"Re-review ({_count(len(run.candidates), 'passage')})"}
+    items = [f"<b>{labels[p]}</b>" if p == current else f'<a href="{_e(pages[p])}">{labels[p]}</a>' for p in labels]
+    return f'<p class="nav">{"".join(items)}</p>'
+
+
+def _view_line(run: Run, method: str, k: int, baseline: Run | None = None) -> str:
+    """The line under a page's title: memos, model, method, k, baseline."""
+    return (f'<p class="sub">{_e(", ".join(run.meta["memos"]))} · embedding model '
+            f'{_e(run.meta["embedding_model"])} · {_e(_METHOD_LABEL[method])} · k = {k} passages per search phrase'
+            + (f" · compared with {_e(baseline.run_id)}" if baseline is not None else "") + "</p>")
+
+
+def _unverifiable_note(run: Run, listed: str) -> str:
+    """The unverifiable count with the re-review sentence beside it — the only
+    form in which a page may state that count. `listed` says where the
+    candidates are, as seen from the page it is on ("on the Re-review page",
+    "below")."""
+    census = len(run.claims)
+    unverifiable = int((run.claims["bucket"] == "UNVERIFIABLE").sum())
+    with_candidates = run.candidates["claim_id"].nunique()
+    return (f'<p class="note">{unverifiable} of {census} claims were not found in the sources by this process. '
+            f'For {with_candidates} of them, meaning-based search offers passages the review never showed a '
+            f'human — {len(run.candidates)} listed {listed}. They are not part of the coverage '
+            f'figures.</p>')
+
+
+def _page(title: str, body: list[str]) -> str:
+    """A whole self-contained page: the styles inline, nothing fetched."""
+    return ("<!doctype html><html><head><meta charset=\"utf-8\">"
+            f"<title>{_e(title)}</title><style>{_CSS}</style></head><body>" + "".join(body) + "</body></html>")
 
 
 def _delta(current, base) -> str:
@@ -1255,13 +1332,54 @@ def _bar(row) -> str:
     return f'<span class="bar"><span style="width:{pct:.0f}%"></span></span> {_pct(row.covered, row.claims)}'
 
 
-def render_report(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline: Run | None = None) -> str:
-    """The whole report for one run at (method, k), optionally with deltas
-    against a baseline run (check_comparable must pass). Returns the HTML."""
-    if method not in _RETRIEVAL_METHODS:
-        raise ValueError(f"method {method!r}: use one of {', '.join(_RETRIEVAL_METHODS)}")
-    if not 1 <= k <= _RETRIEVE_DEPTH:
-        raise ValueError(f"k={k}: use 1..{_RETRIEVE_DEPTH}")
+def _traced_examples(run: Run, method: str, k: int) -> str:
+    """One found and one missed verifiable claim per memo at (method, k),
+    each with the evidence a human confirmed, folded. A found claim quotes
+    the evidence row that was actually hit (best_golden_chunk_id) — a claim
+    can have many — and says where the hit was."""
+    text_by_claim = dict(zip(run.claims["claim_id"], run.claims["claim_text"]))
+    hits = run.claim_hits[run.claim_hits["method"] == method]
+    best = hits.sort_values(["best_rank"], kind="stable").groupby("claim_id").first()
+    first_quote = run.evidence.groupby("claim_id").first()
+    quote_of = run.evidence.set_index(["claim_id", "chunk_id"])["evidence_span"]
+    table = ["<table><tr><th>memo</th><th>claim</th><th>evidence a human confirmed</th><th>retrieved?</th></tr>"]
+    for memo_id in run.meta["memos"]:
+        verifiable = run.claims[(run.claims["memo_id"] == memo_id) & (run.claims["bucket"] != "UNVERIFIABLE")]
+        found = [c for c in verifiable["claim_id"] if best.loc[c, "best_rank"] <= k]
+        missed = [c for c in verifiable["claim_id"] if not best.loc[c, "best_rank"] <= k]
+        for claim_id in found[:1] + missed[:1]:
+            b = best.loc[claim_id]
+            if b.best_rank <= k:
+                golden = b.best_golden_chunk_id
+                quote = quote_of.loc[(claim_id, golden)]
+                g, r = _chunk_index_of(golden), _chunk_index_of(b.best_chunk_id)
+                if b.best_chunk_id == golden:
+                    where = "the same passage"
+                elif g is not None and r is not None and abs(g - r) == 1:
+                    where = f"the neighbouring passage {_e(b.best_chunk_id)}, which contains this quote"
+                else:   # _is_hit's identical-text case: another place holding the same text
+                    where = f"passage {_e(b.best_chunk_id)}, whose text is identical to this quote"
+                outcome = f"yes — rank {int(b.best_rank)}: {where}"
+            else:
+                golden = first_quote.loc[claim_id, "chunk_id"]
+                quote = first_quote.loc[claim_id, "evidence_span"]
+                outcome = f"no — not in the top {k} for any search phrase"
+            table.append(f"<tr><td>{_e(memo_id)}</td><td>{_e(text_by_claim[claim_id])}</td>"
+                         f'<td><details><summary>show quote</summary><span class="quote">{_e(quote)} '
+                         f"({_e(golden)})</span></details></td><td>{outcome}</td></tr>")
+    table.append(_TABLE_CLOSE)
+    return f'<div class="scroll">{"".join(table)}</div>'
+
+
+def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline: Run | None = None,
+                   pages: dict[str, str] | None = None) -> str:
+    """The summary page for one run at (method, k), for a non-technical
+    audience: traced examples first, then the headline tiles, the coverage
+    chart, the memo/section table and the miss reasons — optionally with
+    changes against a baseline run (check_comparable must pass). `pages`
+    names the three files to link between (_page_names); None leaves the
+    link line out. Returns the HTML."""
+    _check_view(method, k)
     if baseline is not None:
         check_comparable(run, baseline)
 
@@ -1279,17 +1397,16 @@ def render_report(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline:
     section_rows = run.metrics[(run.metrics["scope"] == "section") & (run.metrics["method"] == method)
                                & (run.metrics["k"] == k)]
     n_sections = int((section_rows["passages"] > 0).sum())
-    census = len(run.claims)
-    unverifiable = int((run.claims["bucket"] == "UNVERIFIABLE").sum())
-    text_by_claim = dict(zip(run.claims["claim_id"], run.claims["claim_text"]))
     out: list[str] = []
 
     out.append(f"<h1>Retrieval eval — {_e(run.run_id)}</h1>")
-    out.append(f'<p class="sub">{_e(", ".join(run.meta["memos"]))} · embedding model '
-               f'{_e(run.meta["embedding_model"])} · {_e(_METHOD_LABEL[method])} · k = {k} passages per search phrase'
-               + (f" · compared with {_e(baseline.run_id)}" if baseline is not None else "") + "</p>")
+    out.append(_view_line(run, method, k, baseline))
+    out.append(_nav(run, pages, "summary"))
     out.append('<p class="frame">This measures a retrieval <b>prototype</b> against a hand-reviewed ruler. '
                'It shows what the instrument produces — it is not a verdict on any production system.</p>')
+
+    out.append("<h2>Traced examples</h2>")
+    out.append(_traced_examples(run, method, k))
 
     out.append('<div class="tiles">')
     out.append(f'<div class="tile"><div class="l">claim coverage</div><div class="v">{_pct(covered, claims)}</div>'
@@ -1306,10 +1423,7 @@ def render_report(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline:
         out.append(f'<p class="sub">With {claims} verifiable claims, one claim moves coverage by about '
                    f'{_round_half_away(100 / claims)} points — treat small changes as noise.</p>')
     out.append(_phrase_count_note(run, baseline))
-    with_candidates = run.candidates["claim_id"].nunique()
-    out.append(f'<p class="note">{unverifiable} of {census} claims were not found in the sources by this process. '
-               f'For {with_candidates} of them, meaning-based search offers passages the review never showed a '
-               f'human — {len(run.candidates)} listed under Re-review candidates. They are not scored above.</p>')
+    out.append(_unverifiable_note(run, "on the Re-review page"))
 
     out.append("<h2>Coverage as each search phrase returns more passages</h2>")
     out.append(_coverage_svg(run, method, k, baseline))
@@ -1343,88 +1457,179 @@ def render_report(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline:
     table.append(_TABLE_CLOSE)
     out.append("".join(table))
 
-    out.append("<h2>Traced examples</h2>")
-    hits = run.claim_hits[run.claim_hits["method"] == method]
-    best = hits.sort_values(["best_rank"], kind="stable").groupby("claim_id").first()
-    first_quote = run.evidence.groupby("claim_id").first()
-    quote_of = run.evidence.set_index(["claim_id", "chunk_id"])["evidence_span"]
-    table = ["<table><tr><th>memo</th><th>claim</th><th>evidence a human confirmed</th><th>retrieved?</th></tr>"]
+    return _page(f"Retrieval eval {run.run_id}", out)
+
+
+def _evidence_pieces(run: Run) -> dict[str, list[list]]:
+    """
+    Each verifiable claim's confirmed evidence rows, split into the pieces of
+    evidence (decision 1's groups) scoring ranked, in scoring's group order.
+    The pieces are read from the chunk ids scoring stored for each group
+    (claim_hits' group_chunk_ids), never grouped again here, so a later
+    change to the grouping code cannot put a quote under another piece's
+    rank. Halts (EvalInputError) for a run scored before those ids were
+    stored, and for a claim whose pieces do not hold exactly its evidence
+    rows, so no quote is silently left off the page. Only the claims page
+    needs the ids: such a run still serves as a baseline, which reads only
+    its meta and metrics.
+    """
+    if "group_chunk_ids" not in run.claim_hits.columns:
+        raise EvalInputError([f"{run.run_id}: scored before runs recorded each piece of evidence's chunks, "
+                              f"which the claims page needs — it can still be a baseline; to report on the "
+                              f"current retrieval results, run python eval_pipeline.py score"])
+    evidence_by_claim = {c: {r.chunk_id: r for r in g.itertuples(index=False)}
+                         for c, g in run.evidence.groupby("claim_id")}
+    groups = run.claim_hits.drop_duplicates(["claim_id", "group"]).sort_values(["claim_id", "group"])
+    pieces: dict[str, list[list]] = {}
+    problems: list[str] = []
+    for claim_id, claim_groups in groups.groupby("claim_id"):
+        rows = evidence_by_claim.get(claim_id, {})
+        members = list(claim_groups["group_chunk_ids"])
+        listed = [c for ids in members for c in ids]
+        if len(listed) != len(rows) or set(listed) != set(rows):
+            problems.append(f"{run.run_id}: claim {claim_id}: its pieces of evidence do not hold exactly its "
+                            f"evidence rows — the run's files were changed after scoring")
+            continue
+        pieces[str(claim_id)] = [[rows[c] for c in ids] for ids in members]
+    if problems:
+        raise EvalInputError(problems)
+    return pieces
+
+
+def _rank_line(ranks: dict[str, float]) -> str:
+    """'dense: rank 2 · keyword: not found · both: rank 3' — each method's
+    best rank within _RETRIEVE_DEPTH, NaN meaning not found."""
+    return " · ".join(f"{m}: " + ("not found" if pd.isna(ranks[m]) else f"rank {int(ranks[m])}")
+                      for m in _RETRIEVAL_METHODS)
+
+
+def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: str | None, k: int) -> str:
+    """One claim on the claims page: the headline (number, text, type, best
+    rank per method, retrieved at k or why not), then — folded — each piece
+    of evidence with its own ranks and its quotes (_quotes: a human-added
+    row can hold several)."""
+    piece_ranks = [{m: ranks[(claim.claim_id, g, m)] for m in _RETRIEVAL_METHODS} for g in range(len(pieces))]
+    best = {m: min((r[m] for r in piece_ranks if pd.notna(r[m])), default=np.nan) for m in _RETRIEVAL_METHODS}
+    outcome = f"retrieved at k = {k}" if reason is None else f"missed at k = {k}: {reason}"
+    folded, n_quotes = [], 0
+    for i, (piece, piece_rank) in enumerate(zip(pieces, piece_ranks), start=1):
+        quotes = [f'<p class="quote">{_e(q)} ({_e(row.chunk_id)})</p>' for row in piece for q in _quotes(row)]
+        n_quotes += len(quotes)
+        folded.append(f'<div class="piece"><p class="sub">piece {i} — {_rank_line(piece_rank)}</p>'
+                      f'{"".join(quotes)}</div>')
+    return (f'<div class="claim"><p><b>{number}.</b> {_e(claim.claim_text)} '
+            f'<span class="sub">({_e(claim.bucket.lower())})</span></p>'
+            f'<p class="sub">{_rank_line(best)} — {_e(outcome)}</p>'
+            f'<details><summary>{_count(len(pieces), "piece")} of evidence, {_count(n_quotes, "quote")}</summary>'
+            f'{"".join(folded)}</details></div>')
+
+
+def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: dict[str, str] | None = None) -> str:
+    """The claims page for one run at (method, k): every verifiable claim,
+    numbered, grouped by memo and section in claims-file order (the order
+    the memo reads, the same for every method and k). Each shows its best
+    rank per method, whether it was retrieved at (method, k) or why not
+    (miss_taxonomy), and — folded — each piece of evidence with its own
+    rank per method and its confirmed quotes. Quotes the pipeline groups as
+    one piece (decision 1) share its rank. No baseline changes here; the
+    summary carries them. `pages` as in render_summary. Returns the HTML."""
+    _check_view(method, k)
+    pieces = _evidence_pieces(run)
+    ranks = run.claim_hits.set_index(["claim_id", "group", "method"])["best_rank"].to_dict()
+    misses = miss_taxonomy(run, method, k)
+    reason_of = dict(zip(misses["claim_id"], misses["category"]))
+    verifiable = run.claims[run.claims["bucket"] != "UNVERIFIABLE"]
+    legend = ", ".join(f"{m} = {_METHOD_LABEL[m]}" for m in _RETRIEVAL_METHODS)
+    out = [f"<h1>Claims — {_e(run.run_id)}</h1>", _view_line(run, method, k), _nav(run, pages, "claims"),
+           f'<p class="sub">Every verifiable claim ({len(verifiable)}), with the evidence a human confirmed and '
+           f'the best rank at which each search method retrieved it within the top {_RETRIEVE_DEPTH} passages '
+           f'per search phrase ({_e(legend)}). Quotes the pipeline treats as one piece of evidence share its '
+           f'rank.</p>']
+    number = 0
     for memo_id in run.meta["memos"]:
-        verifiable = run.claims[(run.claims["memo_id"] == memo_id) & (run.claims["bucket"] != "UNVERIFIABLE")]
-        found = [c for c in verifiable["claim_id"] if best.loc[c, "best_rank"] <= k]
-        missed = [c for c in verifiable["claim_id"] if not best.loc[c, "best_rank"] <= k]
-        for claim_id in found[:1] + missed[:1]:
-            b = best.loc[claim_id]
-            if b.best_rank <= k:
-                # quote the evidence row that was actually found — a claim can have many
-                golden = b.best_golden_chunk_id
-                quote = quote_of.loc[(claim_id, golden)]
-                g, r = _chunk_index_of(golden), _chunk_index_of(b.best_chunk_id)
-                if b.best_chunk_id == golden:
-                    where = "the same passage"
-                elif g is not None and r is not None and abs(g - r) == 1:
-                    where = f"the neighbouring passage {_e(b.best_chunk_id)}, which contains this quote"
-                else:   # _is_hit's identical-text case: another place holding the same text
-                    where = f"passage {_e(b.best_chunk_id)}, whose text is identical to this quote"
-                outcome = f"yes — rank {int(b.best_rank)}: {where}"
-            else:
-                golden = first_quote.loc[claim_id, "chunk_id"]
-                quote = first_quote.loc[claim_id, "evidence_span"]
-                outcome = f"no — not in the top {k} for any search phrase"
-            table.append(f"<tr><td>{_e(memo_id)}</td><td>{_e(text_by_claim[claim_id])}</td>"
-                         f'<td class="quote">{_e(quote)} ({_e(golden)})</td><td>{outcome}</td></tr>')
-    table.append(_TABLE_CLOSE)
-    out.append(f'<div class="scroll">{"".join(table)}</div>')
+        memo_claims = verifiable[verifiable["memo_id"] == memo_id]
+        if memo_claims.empty:
+            continue
+        out.append(f"<h2>{_e(memo_id)}</h2>")
+        for section, claims in memo_claims.groupby("section", sort=False):
+            out.append(f"<h3>{_e(section)}</h3>")
+            for claim in claims.itertuples(index=False):
+                number += 1
+                out.append(_claim_block(number, claim, pieces[claim.claim_id], ranks,
+                                        reason_of.get(claim.claim_id), k))
+    return _page(f"Claims {run.run_id}", out)
 
-    out.append("<h2>Re-review candidates</h2>")
-    out.append(f"<p>{len(run.candidates)} passage(s) for {run.candidates['claim_id'].nunique()} unverifiable "
-               f"claim(s), strongest first; the first {min(_CANDIDATES_SHOWN, len(run.candidates))} shown. "
-               f"A worklist for a person, not a count of errors.</p>")
-    table = ["<table><tr><th>score</th><th>memo</th><th>claim</th><th>passage</th></tr>"]
-    for c in run.candidates.head(_CANDIDATES_SHOWN).itertuples(index=False):
-        table.append(f"<tr><td>{c.score:.3f}</td><td>{_e(c.memo_id)}</td><td>{_e(c.claim_text)}</td>"
-                     f'<td class="quote">{_e(c.chunk_text[:300])}{"…" if len(c.chunk_text) > 300 else ""} '
-                     f'({_e(c.chunk_id)})</td></tr>')
-    table.append(_TABLE_CLOSE)
-    out.append(f'<div class="scroll">{"".join(table)}</div>')
 
-    out.append("<h2>Details</h2>")
-    detail = run.metrics[(run.metrics["method"] == method) & (run.metrics["k"] == k)].drop(columns=["mrr"])
-    out.append('<div class="scroll">' + detail.to_html(index=False, escape=True, na_rep="—",
-                                                       float_format=lambda v: f"{v:.3f}") + "</div>")
-    out.append('<p class="sub">Precision is <b>citation</b> precision, a floor: the golden set covers only passages '
-               'someone cited, so a relevant but uncited passage counts against it. It is pooled per memo. '
-               'Passages are counted per section and summed. Macro recall averages, per claim, the share of its '
-               'separate pieces of evidence retrieved; where duplicate source documents repeat a passage, each copy '
-               'is its own piece, so a claim found in only one copy reaches at most 50% (coverage is unaffected when '
-               'both copies were cited; a copy nobody cited is never credited). '
-               'MRR is stored in the run but not shown: it takes '
-               "each claim's best rank over several separate phrase rankings, so it rises with the number of "
-               'phrases and is not comparable between sections.</p>')
-
-    return ("<!doctype html><html><head><meta charset=\"utf-8\">"
-            f"<title>Retrieval eval {_e(run.run_id)}</title><style>{_CSS}</style></head><body>"
-            + "".join(out) + "</body></html>")
+def render_rereview(run: Run) -> str:
+    """The re-review page: every candidate (rereview_candidates), none cut,
+    grouped by memo and under its claim — claims numbered, the one with the
+    strongest passage first, its passages strongest first — each passage
+    folded under a one-line header (score · passage id) with its full text.
+    The same for every method and k, so one file per run (_page_names). It
+    links nowhere: it cannot know which summary it was opened from, and the
+    browser's Back button returns there. Returns the HTML."""
+    out = [f"<h1>Re-review candidates — {_e(run.run_id)}</h1>",
+           f'<p class="sub">{_e(", ".join(run.meta["memos"]))} · the same for every search method and k</p>',
+           _unverifiable_note(run, "below"),
+           "<p>A worklist for a person, not a count of errors: for each claim, the passages meaning-based search "
+           "offers for its own text that the review never showed a human, strongest first. Only a person can "
+           "say whether one supports the claim.</p>"]
+    number = 0
+    for memo_id in run.meta["memos"]:
+        memo = run.candidates[run.candidates["memo_id"] == memo_id]
+        if memo.empty:
+            continue
+        out.append(f"<h2>{_e(memo_id)}</h2>")
+        # stored strongest first, so each claim first appears at its strongest passage
+        for _, group in memo.groupby("claim_id", sort=False):
+            number += 1
+            passages = list(group.itertuples(index=False))
+            folded = "".join(f'<details><summary>{p.score:.3f} · {_e(p.chunk_id)}</summary>'
+                             f'<p class="quote">{_e(p.chunk_text)}</p></details>' for p in passages)
+            out.append(f'<div class="claim"><p><b>{number}.</b> {_e(passages[0].claim_text)}</p>'
+                       f'<p class="sub">{_e(passages[0].section)} · {_count(len(passages), "passage")}</p>'
+                       f"{folded}</div>")
+    return _page(f"Re-review {run.run_id}", out)
 
 
 def write_report(run_id: str, *, method: str = "dense", k: int = _TOP_K,
-                 baseline_id: str | None = None, runs_dir: str = "eval_runs") -> str:
-    """Renders and writes eval_runs/<run_id>/report_<method>_k<k>[_vs_<baseline>].html; returns the path."""
+                 baseline_id: str | None = None, runs_dir: str = "eval_runs") -> list[str]:
+    """Renders the three pages and writes them into eval_runs/<run_id>/ under
+    _page_names; returns their paths, summary first."""
     run = load_run(run_id, runs_dir)
     baseline = load_run(baseline_id, runs_dir) if baseline_id else None
-    name = f"report_{method}_k{k}" + (f"_vs_{baseline.run_id}" if baseline is not None else "") + ".html"
-    page = render_report(run, method=method, k=k, baseline=baseline)
-    path = os.path.join(runs_dir, run.run_id, name)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(page)
-    return path
+    return _write_pages(run, baseline, method, k, runs_dir)
+
+
+def _write_pages(run: Run, baseline: Run | None, method: str, k: int, runs_dir: str) -> list[str]:
+    """write_report's work on runs already loaded. All three pages are
+    rendered before any is written, so a refused page leaves no half-updated
+    set."""
+    pages = _page_names(method, k, baseline.run_id if baseline is not None else None)
+    rendered = {"summary": render_summary(run, method=method, k=k, baseline=baseline, pages=pages),
+                "claims": render_claims(run, method=method, k=k, pages=pages),
+                "rereview": render_rereview(run)}
+    paths = []
+    for page, text in rendered.items():
+        path = os.path.join(runs_dir, run.run_id, pages[page])
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        paths.append(path)
+    return paths
 
 
 def show_report(run_id: str | None = None, method: str = "dense", k: int = _TOP_K,
-                baseline: str | None = None, runs_dir: str = "eval_runs") -> str:
-    """For the notebook demo: write the report (run_id None means the latest
-    run), display it inline when running under IPython, and return its path."""
-    path = write_report(run_id or "latest", method=method, k=k, baseline_id=baseline, runs_dir=runs_dir)
+                baseline: str | None = None, runs_dir: str = "eval_runs") -> list[str]:
+    """For the notebook demo: write the three pages (run_id None means the
+    latest run), print their paths, and, when running under IPython, display
+    the summary inline. The inline copy is rendered again without its link
+    line — in a notebook a relative link resolves against the notebook, not
+    the run folder, so it would be dead — and so differs from the file on
+    disk by that line, on purpose. Open the printed paths in a browser to
+    move between pages. Returns the paths, summary first."""
+    run = load_run(run_id or "latest", runs_dir)
+    base = load_run(baseline, runs_dir) if baseline else None
+    paths = _write_pages(run, base, method, k, runs_dir)
     try:
         # Optional (notebook only), so not in requirements.txt; the ignore keeps
         # pyright quiet where IPython is not installed, as in CI.
@@ -1432,10 +1637,10 @@ def show_report(run_id: str | None = None, method: str = "dense", k: int = _TOP_
     except ImportError:
         pass
     else:
-        with open(path, encoding="utf-8") as f:
-            display(HTML(f.read()))
-    print(f"report: {path}")
-    return path
+        display(HTML(render_summary(run, method=method, k=k, baseline=base)))
+    for path in paths:
+        print(f"report: {path}")
+    return paths
 
 
 # %% [markdown]
@@ -1485,10 +1690,11 @@ def _main(argv: list[str]) -> None:
                     name, value = a[2:].split("=", 1)
                     flags[name] = value
             if 1 <= len(positional) <= 2 and set(flags) <= {"method", "k"} and len(positional) + len(flags) == len(extra):
-                path = write_report(positional[0], method=flags.get("method", "dense"),
-                                    k=int(flags.get("k", _TOP_K)),
-                                    baseline_id=positional[1] if len(positional) == 2 else None)
-                print(f"eval: wrote {path}")
+                paths = write_report(positional[0], method=flags.get("method", "dense"),
+                                     k=int(flags.get("k", _TOP_K)),
+                                     baseline_id=positional[1] if len(positional) == 2 else None)
+                for path in paths:
+                    print(f"eval: wrote {path}")
                 return
     except ValueError as e:  # EvalInputError is a ValueError, as are a bad --method or --k
         raise SystemExit(str(e))
