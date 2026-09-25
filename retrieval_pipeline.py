@@ -428,7 +428,7 @@ def _load_index(index_path: str) -> dict[str, tuple[str, list[float]]]:
     """Reads an existing index parquet into {chunk_id: (chunk_text, embedding)}; {} if absent."""
     if not os.path.exists(index_path):
         return {}
-    df = pd.read_parquet(index_path)
+    df = pd.read_parquet(index_path, columns=["chunk_id", "chunk_text", "embedding"])
     return {
         chunk_id: (chunk_text, list(embedding))
         for chunk_id, chunk_text, embedding in zip(

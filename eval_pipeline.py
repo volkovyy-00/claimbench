@@ -235,9 +235,9 @@ def load_ground_truth(memo_id: str, claims_dir: str = "claims", reviewed_dir: st
         elif tag in _VERIFIED_TAGS and (chunk_id is None or span is None or doc_id is None):
             problems.append(f"{where}: tag {tag!r} but no chunk_id, doc_id or evidence_span to score against")
 
-    seen: set[tuple[str | None, str]] = set()
+    seen: set[tuple[str, str]] = set()
     for n, claim_id, chunk_id in zip(excel_rows, claim_ids, chunk_ids):
-        if chunk_id is not None:
+        if claim_id is not None and chunk_id is not None:  # a blank claim_id is reported above
             if (claim_id, chunk_id) in seen:
                 problems.append(f"{sheet_path} row {n}: claim {claim_id} lists chunk {chunk_id} twice")
             seen.add((claim_id, chunk_id))
@@ -248,9 +248,10 @@ def load_ground_truth(memo_id: str, claims_dir: str = "claims", reviewed_dir: st
             f"{claims_path}: claim {claim.claim_text!r} ({claim.section}) has no row in "
             f"{sheet_path} — the review is out of date for it"
         )
-    first_row: dict[str | None, int] = {}
+    first_row: dict[str, int] = {}
     for n, claim_id in zip(excel_rows, claim_ids):
-        first_row.setdefault(claim_id, n)
+        if claim_id is not None:
+            first_row.setdefault(claim_id, n)
     for claim_id in sorted(sheet_ids - set(census["claim_id"])):
         problems.append(
             f"{sheet_path} row {first_row[claim_id]}: claim_id {claim_id} is not a claim in "
@@ -487,7 +488,9 @@ def _quotes(golden) -> list[str]:
     span is one quote, kept whole: it is text from the chunk, which may itself
     contain the separator (a table row), and split it would match on a
     fragment."""
-    span = str(golden.evidence_span or "")  # already str or None (load_ground_truth reads cells through _text)
+    span = golden.evidence_span
+    if span is None:
+        return [""]
     return span.split(_QUOTE_SEPARATOR) if golden.human_added else [span]
 
 
@@ -992,9 +995,11 @@ def score_run(
             problems += e.problems
     # Every path that leaves results, queries or results_provenance None has
     # added to problems, so the None tests change nothing at runtime; they let
-    # the checker see all three are set below.
+    # the checker see all three are set below. Should a later edit break that,
+    # the fallback message says so instead of an empty refusal.
     if problems or results is None or queries is None or results_provenance is None:
-        raise EvalInputError(problems)
+        raise EvalInputError(problems or ["internal: retrieval results, claim queries or their provenance "
+                                          "are unset, yet no problem was recorded"])
     skipped = sorted(set(results["memo_id"]) - set(memo_ids))
     if skipped:
         logger.warning("eval: retrieval results also cover %s with no reviewed sheet — not scored", skipped)

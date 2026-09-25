@@ -352,6 +352,16 @@ def test_draft_claim_empty_bundle_makes_no_call(monkeypatch):
                    "reason": "auto: found=False, nothing was found by search", "attempts": 0}
 
 
+def test_draft_claim_without_a_client_fails_once_and_makes_no_call(monkeypatch):
+    monkeypatch.setattr(tp, "_call_llm_with_json_retry",
+                        lambda *a, **k: pytest.fail("no LLM call without a client"))
+    out = tp.draft_claim("Acme sells widgets.", "Acme Ltd", BUNDLE, None)
+    assert out["verdict"] == tp._DRAFT_FAILED
+    assert out["needed_chunk_ids"] == []
+    assert out["attempts"] == 0                             # nothing was tried, so nothing retried
+    assert out["reason"].startswith("DRAFT FAILED: no LLM client")
+
+
 def test_draft_claim_never_makes_a_third_call_to_call_llm(monkeypatch, caplog):
     """Mocks the one HTTP contact point itself, so the retry helper's own
     attempt loop is inside the test: two garbage answers -> exactly two calls."""

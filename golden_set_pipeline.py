@@ -1364,7 +1364,7 @@ def _span_matches_chunk_text(normalized_span: Optional[str], chunk_text: str) ->
     return normalized_span in normalized_chunk_text
 
 
-def _chunk_index_of(chunk_id: Optional[str]) -> Optional[int]:
+def _chunk_index_of(chunk_id: object) -> Optional[int]:
     """
     Extracts the numeric chunk index from a chunk_id built by chunk_document
     as f"{doc_id}_{index}" (rsplit from the right, so doc_ids containing
@@ -1372,15 +1372,15 @@ def _chunk_index_of(chunk_id: Optional[str]) -> Optional[int]:
     segment). Used to confirm two matches come from *physically adjacent*
     chunks, not just any two chunks that happen to share a doc_id. Returns
     None on unparseable input, which callers treat as "not adjacent" — the
-    conservative choice. That includes None (_same_evidence passes a missing
-    chunk_id straight through) and a non-string such as a NaN read back from
-    a DataFrame, which the AttributeError catches.
+    conservative choice. That includes anything not a string: None
+    (_same_evidence passes a missing chunk_id straight through) or a NaN
+    read back from a DataFrame.
     """
-    if chunk_id is None:
+    if not isinstance(chunk_id, str):
         return None
     try:
         return int(chunk_id.rsplit("_", 1)[-1])
-    except (ValueError, AttributeError):
+    except ValueError:
         return None
 
 
