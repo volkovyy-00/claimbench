@@ -1479,7 +1479,11 @@ def _main(argv: list[str]) -> None:
             return
         if command == "report":
             positional = [a for a in extra if not a.startswith("--")]
-            flags = {k: v for k, v in (a[2:].split("=", 1) for a in extra if a.startswith("--") and "=" in a)}
+            flags = {}
+            for a in extra:
+                if a.startswith("--") and "=" in a:
+                    name, value = a[2:].split("=", 1)
+                    flags[name] = value
             if 1 <= len(positional) <= 2 and set(flags) <= {"method", "k"} and len(positional) + len(flags) == len(extra):
                 path = write_report(positional[0], method=flags.get("method", "dense"),
                                     k=int(flags.get("k", _TOP_K)),
