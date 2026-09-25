@@ -9,7 +9,8 @@ full text of that entry as it stood before the split.
 **Dropped/recovered evidence counts are logged only, not added to the
 returned DataFrame** — a per-claim and per-section running total makes
 the impact of drops/recoveries visible without grepping logs, but the
-schema (see `CLAUDE.md` → "DataFrame schema") stays claim/match-shaped,
+schema (see `.claude/rules/golden-set-pipeline.md` → "DataFrame schema")
+stays claim/match-shaped,
 not summary-shaped; a caller wanting the totals reads the log, not a new
 column. "Dropped" is deliberately undifferentiated: a malformed entry, an
 out-of-batch chunk_id that recovery couldn't resolve, and a missing

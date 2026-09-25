@@ -58,7 +58,7 @@ review between them (design decision 18):
   (gitignored; the §12–§13 addenda override earlier sections). Acceptance
   record: `docs/prompt-verification-log.md` → "tag_pipeline v2 — bundle mode".
 
-## Non-obvious design decisions
+## Non-obvious design decisions (decision 18)
 
 18. **Evidence tagging drafts one verdict per claim, and `tag` is written
     only from a human-CHECKED review sheet** (`tag_pipeline.py`). `build`

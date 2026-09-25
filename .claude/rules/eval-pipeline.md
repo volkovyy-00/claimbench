@@ -51,7 +51,7 @@ enforces that structurally.
 - Design: `docs/superpowers/specs/2026-09-10-retrieval-eval-harness-design.md`
   (gitignored).
 
-## Non-obvious design decisions
+## Non-obvious design decisions (decision 19)
 
 19. **The eval scores claims against human-tagged evidence, and refuses
     rather than scoring around a problem** (`eval_pipeline.py`). The relevant

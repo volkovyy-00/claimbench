@@ -16,7 +16,7 @@ exception), a short modifier-survival paragraph (placed just after the
 adjective counterweight), and a one-clause parenthetical on the first
 self-test; the docstring gained a matching summary paragraph. No
 code-path change, no committed test — a prompt-text edit verified by
-live runs (see "Testing convention").
+live runs (see `.claude/rules/testing.md` → "Testing convention").
 
 **The rule is a principle, not a trigger-word list.** A sentence closes
 over a list when it asserts something true only of the whole set — a

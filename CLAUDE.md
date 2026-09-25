@@ -52,19 +52,22 @@ holds only what every session needs regardless of which file it touches.
 
 `docs/design-decisions/` (committed) holds the full observed-failure
 narrative for the decisions whose rule-file entry is a condensed rule +
-current residual + pointer (5, 7, 9, 11–19). Decisions 1–4, 6, 8, 10 have
+current residual + pointer (5, 7, 9, 11–19) — split out so the rule files
+stay loadable every session without carrying every design decision's
+complete history; the rule-file entry is authoritative on the rule
+itself, the linked file is the "why" in full. Decisions 1–4, 6, 8, 10 have
 no separate file (short, no residual worth narrating) and stay fully
 inline in `golden-set-pipeline.md`. Open work — including the fix for any
 residual — is tracked in Jira project `EV`; `CONTRIBUTING.md` says which
 file owns which kind of project knowledge.
 
+### Repository and release process
+
 This is a public GitHub repository (`origin` = `volkovyy-00/claimbench`,
 started 2026-09-23 from one scrubbed commit). `main` is protected: changes
 go through a PR that passes the five required checks (see
-`.claude/rules/testing.md`) and follows `CONTRIBUTING.md`: the Jira key
-first in the PR title, a `CHANGELOG.md` version heading in every
-user-visible PR, and a tag plus GitHub Release created automatically on
-merge. The pre-publication history is private (see `CLAUDE.local.md`);
+`.claude/rules/testing.md`) and follows `CONTRIBUTING.md`'s release
+process. The pre-publication history is private (see `CLAUDE.local.md`);
 never push it here. `README.md` presents the project publicly as
 **ClaimBench** (MIT, `LICENSE`): install, the six-step usage walkthrough, a
 command/config/layout reference, and nothing past that. It must stay
@@ -74,13 +77,13 @@ lives in this file's `.claude/rules/*.md` companions, not README.
 ## Environment
 
 - `.env` (real credentials, never read/print its contents) holds
-  `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` — set to OpenRouter +
-  `openai/gpt-4.1-mini`, deliberately switched from a reasoning model
-  (`openai/gpt-oss-120b`): that's why `call_llm` sets
-  `max_tokens` explicitly (design decision 4), which stays the right
-  guard if a reasoning model is ever set here again. Design decisions 5,
-  9, 15 and 16 record prompt behaviour measured under the *older* model,
-  so re-verify before trusting a residual against a fresh run.
+  `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` — deliberately switched on
+  2026-09-22 from a reasoning model (`openai/gpt-oss-120b`) to OpenRouter +
+  `openai/gpt-4.1-mini`. That's why `call_llm` sets `max_tokens` explicitly
+  (design decision 4), which stays the right guard if a reasoning model is
+  ever set here again. This date is the anchor for design decisions 5, 9,
+  15 and 16's residuals: each was measured under the *older* model, so
+  re-verify a dated residual against it before trusting a fresh run.
   `.env.example` documents the shape.
 - `.venv/` has all deps installed: `source .venv/bin/activate`.
 - Python 3.10+ (the code uses `X | Y` unions and `list[dict]` builtin

@@ -13,7 +13,7 @@ never decay to a bare "X has Y."** `extract_atomic_claims`'s prompt
 gained one paragraph appended to the second self-test (the referent
 test ticket 007 built); the docstring gained a matching paragraph. No
 code-path change, no committed test — a prompt-text edit verified by
-live runs (see "Testing convention").
+live runs (see `.claude/rules/testing.md` → "Testing convention").
 
 **The rule is mechanical, not a checkability judgment.** It fires on a
 shape — a split has reduced a claim to "X has Y." / "X is Y." while the
