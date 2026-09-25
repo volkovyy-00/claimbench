@@ -710,6 +710,8 @@ def compute_metrics(claim_hits: pd.DataFrame, chunk_hits: pd.DataFrame) -> pd.Da
 _CANDIDATE_COLUMNS = list(_CLAIM_QUERY_COLUMNS)
 _RUN_TABLES = ("claims", "evidence", "claim_hits", "chunk_hits", "metrics", "candidates")
 _RUN_LABEL_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_META_FILENAME = "meta.json"
+_XLSX_EXT = ".xlsx"
 
 
 def _sha256(data: bytes) -> str:
@@ -877,7 +879,7 @@ def _write_run(runs_dir: str, run_id: str, tables: dict, meta: dict) -> str:
             tables[name].to_parquet(os.path.join(tmp, f"{name}.parquet"), index=False)
         base, n = run_id, 2
         while True:
-            with open(os.path.join(tmp, "meta.json"), "w", encoding="utf-8") as f:
+            with open(os.path.join(tmp, _META_FILENAME), "w", encoding="utf-8") as f:
                 json.dump({**meta, "run_id": run_id}, f, indent=2, ensure_ascii=False)
             run_dir = os.path.join(runs_dir, run_id)
             try:
@@ -929,14 +931,14 @@ def score_run(
     if label is not None and not _RUN_LABEL_RE.match(label):
         raise EvalInputError([f"run label {label!r}: use only letters, digits, '.', '_' or '-'"])
     names = sorted(os.listdir(reviewed_dir)) if os.path.isdir(reviewed_dir) else []
-    sheets = [f for f in names if f.endswith(".xlsx") and not f.startswith(("~$", "."))]
+    sheets = [f for f in names if f.endswith(_XLSX_EXT) and not f.startswith(("~$", "."))]
     for f in [f for f in sheets if f.endswith(".tmp.xlsx")]:
         logger.warning("eval: %s/%s is a temporary file an interrupted finalize left behind — not scored; "
                        "delete it", reviewed_dir, f)
     sheets = [f for f in sheets if not f.endswith(".tmp.xlsx")]
-    memo_ids = [f[: -len(".xlsx")] for f in sheets if _valid_memo_id(f[: -len(".xlsx")])]
+    memo_ids = [f[: -len(_XLSX_EXT)] for f in sheets if _valid_memo_id(f[: -len(_XLSX_EXT)])]
     for f in sheets:
-        if not _valid_memo_id(f[: -len(".xlsx")]):
+        if not _valid_memo_id(f[: -len(_XLSX_EXT)]):
             logger.warning("eval: %s/%s is not named <memo_id>.xlsx — not scored", reviewed_dir, f)
     if not memo_ids:
         raise EvalInputError([f"{reviewed_dir}/: no reviewed sheets — run python tag_pipeline.py finalize <memo_id>"])
@@ -1056,7 +1058,7 @@ def latest_run_id(runs_dir: str = "eval_runs") -> str:
     """
     runs = []
     for d in (os.listdir(runs_dir) if os.path.isdir(runs_dir) else []):
-        meta_path = os.path.join(runs_dir, d, "meta.json")
+        meta_path = os.path.join(runs_dir, d, _META_FILENAME)
         if d.endswith(".tmp") or not os.path.isfile(meta_path):
             continue
         try:
@@ -1078,7 +1080,7 @@ def load_run(run_id: str, runs_dir: str = "eval_runs") -> Run:
     if not os.path.isdir(run_dir):
         raise EvalInputError([f"{run_dir}: no such run"])
     try:
-        with open(os.path.join(run_dir, "meta.json"), encoding="utf-8") as f:
+        with open(os.path.join(run_dir, _META_FILENAME), encoding="utf-8") as f:
             meta = json.load(f)
         tables = {name: pd.read_parquet(os.path.join(run_dir, f"{name}.parquet")) for name in _RUN_TABLES}
     except (OSError, ValueError) as e:
@@ -1119,6 +1121,7 @@ _MISS_CATEGORIES = ("found by another method at this depth",
                     f"found only deeper (by k={_RETRIEVE_DEPTH})",
                     f"not found by any method within {_RETRIEVE_DEPTH}")
 _CANDIDATES_SHOWN = 25
+_TABLE_CLOSE = "</table>"
 _CSS = """
 body{font:15px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1f2937;background:#fafaf9;
      max-width:1040px;margin:0 auto;padding:24px}
@@ -1327,7 +1330,7 @@ def render_report(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline:
             sb = row(baseline, "section", memo_id, section) if baseline is not None else None
             table.append(f"<tr><td></td><td>{_e(section)}</td><td>{_bar(s)}</td>"
                          f"<td>{int(s.passages) if s is not None else 0}</td><td>{_delta(s, sb)}</td></tr>")
-    table.append("</table>")
+    table.append(_TABLE_CLOSE)
     out.append("".join(table))
 
     out.append(f"<h2>Why the missed claims were missed (k = {k})</h2>")
@@ -1337,7 +1340,7 @@ def render_report(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline:
         rows = misses[misses["category"] == category]
         table.append(f"<tr><td>{_e(category)}</td><td>{int((rows['bucket'] == 'EXTRACTIVE').sum())}</td>"
                      f"<td>{int((rows['bucket'] == 'SYNTHESIZED').sum())}</td></tr>")
-    table.append("</table>")
+    table.append(_TABLE_CLOSE)
     out.append("".join(table))
 
     out.append("<h2>Traced examples</h2>")
@@ -1370,7 +1373,7 @@ def render_report(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline:
                 outcome = f"no — not in the top {k} for any search phrase"
             table.append(f"<tr><td>{_e(memo_id)}</td><td>{_e(text_by_claim[claim_id])}</td>"
                          f'<td class="quote">{_e(quote)} ({_e(golden)})</td><td>{outcome}</td></tr>')
-    table.append("</table>")
+    table.append(_TABLE_CLOSE)
     out.append(f'<div class="scroll">{"".join(table)}</div>')
 
     out.append("<h2>Re-review candidates</h2>")
@@ -1382,7 +1385,7 @@ def render_report(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline:
         table.append(f"<tr><td>{c.score:.3f}</td><td>{_e(c.memo_id)}</td><td>{_e(c.claim_text)}</td>"
                      f'<td class="quote">{_e(c.chunk_text[:300])}{"…" if len(c.chunk_text) > 300 else ""} '
                      f'({_e(c.chunk_id)})</td></tr>')
-    table.append("</table>")
+    table.append(_TABLE_CLOSE)
     out.append(f'<div class="scroll">{"".join(table)}</div>')
 
     out.append("<h2>Details</h2>")
@@ -1476,7 +1479,11 @@ def _main(argv: list[str]) -> None:
             return
         if command == "report":
             positional = [a for a in extra if not a.startswith("--")]
-            flags = dict(a[2:].split("=", 1) for a in extra if a.startswith("--") and "=" in a)
+            flags = {}
+            for a in extra:
+                if a.startswith("--") and "=" in a:
+                    name, value = a[2:].split("=", 1)
+                    flags[name] = value
             if 1 <= len(positional) <= 2 and set(flags) <= {"method", "k"} and len(positional) + len(flags) == len(extra):
                 path = write_report(positional[0], method=flags.get("method", "dense"),
                                     k=int(flags.get("k", _TOP_K)),

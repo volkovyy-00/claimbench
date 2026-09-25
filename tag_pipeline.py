@@ -1302,7 +1302,12 @@ def build_reviewed_rows(memo_id: str, claims: list[dict], file_claims: list[tupl
         for chunk in claim["chunks"]:
             record = chunk["record"]
             real = chunks_by_id[record["chunk_id"]]
-            how = "marked" if chunk["marked"] else "marked by quote" if chunk["by_quote"] else "not marked"
+            if chunk["marked"]:
+                how = "marked"
+            elif chunk["by_quote"]:
+                how = "marked by quote"
+            else:
+                how = "not marked"
             rows.append({**base, "doc_id": real["doc_id"], "chunk_id": record["chunk_id"],
                          "chunk_text": real["chunk_text"], "bm25_score": record["bm25_score"],
                          "evidence_span": record["evidence_span"], "found": True,

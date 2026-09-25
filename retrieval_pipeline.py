@@ -768,7 +768,7 @@ def _validate_retrieve_inputs(
     return prepared
 
 
-def _check_query_dim(memo_id: str, vectors: list[list[float]], M: "np.ndarray", what: str) -> None:
+def _check_query_dim(memo_id: str, vectors: list[list[float]], matrix: "np.ndarray", what: str) -> None:
     """
     Raises ValueError naming the memo and both dimensions if query
     embeddings came back a different size than the index (the index and
@@ -776,23 +776,23 @@ def _check_query_dim(memo_id: str, vectors: list[list[float]], M: "np.ndarray", 
     fail with a bare NumPy shape error naming nothing. `what` is "phrase" or
     "claim", for the message.
     """
-    if vectors and len(vectors[0]) != M.shape[1]:
+    if vectors and len(vectors[0]) != matrix.shape[1]:
         raise ValueError(
             f"{memo_id}: {what} embeddings are {len(vectors[0])}-dim but the "
-            f"index is {M.shape[1]}-dim — the index and EMBED_MODEL disagree. Delete "
+            f"index is {matrix.shape[1]}-dim — the index and EMBED_MODEL disagree. Delete "
             f"retrieval_index/{memo_id}.parquet and re-run embed."
         )
 
 
-def _cosine_scores(M: "np.ndarray", vector: list[float]) -> "np.ndarray":
+def _cosine_scores(matrix: "np.ndarray", vector: list[float]) -> "np.ndarray":
     """
-    Cosine similarity of one query vector against M, whose rows are already
-    L2-normalized (_load_search_matrix). A zero query vector scores 0
+    Cosine similarity of one query vector against matrix, whose rows are
+    already L2-normalized (_load_search_matrix). A zero query vector scores 0
     everywhere rather than dividing by zero.
     """
     q = np.asarray(vector, dtype=np.float64)
     qn = np.linalg.norm(q)
-    return M @ (q / (qn if qn != 0 else 1.0))
+    return matrix @ (q / (qn if qn != 0 else 1.0))
 
 
 def _rank_by_score(scores, chunk_ids: list[str], k: int, *, drop_nonpositive: bool) -> list[tuple[int, float]]:

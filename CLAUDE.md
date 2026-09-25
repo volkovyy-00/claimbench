@@ -940,6 +940,8 @@ task); keep new tests in their own file, not a catch-all module:
   derivation `test_claim_id.py`; orchestrators + `__main__` `test_two_stage_pipeline.py`
 - decision 18 — `draft` `test_bundle_tagging.py`; `finalize` + eval contract `test_finalize.py`
 - `_widen_review_columns` — `test_review_columns.py`
+- `_strip_to_json`'s fence regex and `_ATX_CLOSE_RE` (same matches as before
+  EV-16, no super-linear backtracking) — `test_regex_backtracking.py`
 - `CONTRIBUTING.md`'s release rules (`.github/scripts/release_check.py`) — `test_release_check.py`
 - `retrieval_pipeline.py` — `test_retrieval_pipeline.py`
 - `eval_pipeline.py` — `test_eval_pipeline.py`

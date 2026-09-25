@@ -308,7 +308,7 @@ def _strip_to_json(text: str) -> str:
     (json.loads will then fail loudly, which is what we want).
     """
     text = text.strip()
-    fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+    fence_match = re.search(r"```(?:json)?(.*?)```", text, re.DOTALL)
     if fence_match:
         return fence_match.group(1).strip()
 
@@ -1867,7 +1867,11 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # can pass validation yet parse back differently than it was written, breaking
 # the write_claims_file -> parse_claims_file round-trip theorem. Note 'C#'
 # has no whitespace before the '#', so it is not a close and survives.
-_ATX_CLOSE_RE = re.compile(r"\s+#+$")
+# The (?<!\s) lets a match start only where a whitespace run starts. It
+# changes no match (one starting mid-run also matches from the run's start),
+# but without it a search retries from every position inside a long run of
+# whitespace, and a name holding one takes time quadratic in its length.
+_ATX_CLOSE_RE = re.compile(r"(?<!\s)\s+#+$")
 
 # A memo id, which doubles as the claims-file name (claims/<memo_id>.md).
 # Shared by _read_memo_config (memos.yaml), _parse_frontmatter (reading a
@@ -2827,9 +2831,11 @@ def preview_claim_splits(memo_sections: list[tuple], llm_client: LLMClient) -> N
 # prompt below. Never wired into build_golden_set_batch.
 RUN_CLAIM_SPLIT_PREVIEW = False
 
+_DEFAULT_CONFIG_PATH = "memos.yaml"
+
 if RUN_CLAIM_SPLIT_PREVIEW:
     preview_claim_splits(
-        load_memo_sections_from_config("memos.yaml"),
+        load_memo_sections_from_config(_DEFAULT_CONFIG_PATH),
         LLMClient.from_env(),
     )
 
@@ -2910,7 +2916,7 @@ def load_memo_sections_from_claims(
 # beside this, in §6g.
 
 # %%
-def run_extract(config_path: str = "memos.yaml", claims_dir: str = "claims", *, llm_client) -> dict:
+def run_extract(config_path: str = _DEFAULT_CONFIG_PATH, claims_dir: str = "claims", *, llm_client) -> dict:
     """
     Stage 1: read memos.yaml, run extract_atomic_claims on each section, and
     write claims/<memo_id>.md -- but only when the memo's source_folder
@@ -3097,7 +3103,7 @@ def _main(argv: list[str]) -> None:
         raise SystemExit(f"usage: python golden_set_pipeline.py [extract|build] (got {command!r})")
     client = LLMClient.from_env()
     if command == "extract":
-        if run_extract("memos.yaml", "claims", llm_client=client)["failed"]:
+        if run_extract(_DEFAULT_CONFIG_PATH, "claims", llm_client=client)["failed"]:
             raise SystemExit(1)
     else:
         run_build("claims", llm_client=client)
