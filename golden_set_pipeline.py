@@ -308,7 +308,7 @@ def _strip_to_json(text: str) -> str:
     (json.loads will then fail loudly, which is what we want).
     """
     text = text.strip()
-    fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+    fence_match = re.search(r"```(?:json)?(.*?)```", text, re.DOTALL)
     if fence_match:
         return fence_match.group(1).strip()
 
@@ -1867,7 +1867,11 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # can pass validation yet parse back differently than it was written, breaking
 # the write_claims_file -> parse_claims_file round-trip theorem. Note 'C#'
 # has no whitespace before the '#', so it is not a close and survives.
-_ATX_CLOSE_RE = re.compile(r"\s+#+$")
+# The (?<!\s) lets a match start only where a whitespace run starts. It
+# changes no match (one starting mid-run also matches from the run's start),
+# but without it a search retries from every position inside a long run of
+# whitespace, and a name holding one takes time quadratic in its length.
+_ATX_CLOSE_RE = re.compile(r"(?<!\s)\s+#+$")
 
 # A memo id, which doubles as the claims-file name (claims/<memo_id>.md).
 # Shared by _read_memo_config (memos.yaml), _parse_frontmatter (reading a
