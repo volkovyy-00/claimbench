@@ -1098,6 +1098,13 @@ def test_claims_page_refuses_pieces_that_do_not_match_the_evidence(world):
         ep.render_claims(run)
 
 
+def test_claims_page_refuses_a_claim_missing_from_the_hits(world):
+    run = _run()
+    run.claim_hits = run.claim_hits[run.claim_hits["claim_id"] != cid(BP, C1)]
+    with pytest.raises(ep.EvalInputError, match="pieces of evidence"):
+        ep.render_claims(run)
+
+
 def test_a_refused_page_leaves_no_report_files(world):
     run = _run()
     _drop_piece_members_on_disk(run.run_id)

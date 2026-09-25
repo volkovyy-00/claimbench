@@ -1480,11 +1480,13 @@ def _evidence_pieces(run: Run) -> dict[str, list[list]]:
     evidence_by_claim = {c: {r.chunk_id: r for r in g.itertuples(index=False)}
                          for c, g in run.evidence.groupby("claim_id")}
     groups = run.claim_hits.drop_duplicates(["claim_id", "group"]).sort_values(["claim_id", "group"])
+    members_by_claim = {c: list(g["group_chunk_ids"]) for c, g in groups.groupby("claim_id")}
     pieces: dict[str, list[list]] = {}
     problems: list[str] = []
-    for claim_id, claim_groups in groups.groupby("claim_id"):
+    # every claim either table knows: one missing from the hits has evidence but no pieces
+    for claim_id in [*evidence_by_claim, *(c for c in members_by_claim if c not in evidence_by_claim)]:
         rows = evidence_by_claim.get(claim_id, {})
-        members = list(claim_groups["group_chunk_ids"])
+        members = members_by_claim.get(claim_id, [])
         listed = [c for ids in members for c in ids]
         if len(listed) != len(rows) or set(listed) != set(rows):
             problems.append(f"{run.run_id}: claim {claim_id}: its pieces of evidence do not hold exactly its "
