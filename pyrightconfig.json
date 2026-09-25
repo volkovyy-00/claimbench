@@ -2,9 +2,9 @@
 // `basedpyright` locally runs exactly what CI runs.
 //
 // Only the four pipeline modules; tests/ is not type-checked yet.
-// .basedpyright/baseline.json lists the 23 errors left once pandas-stubs was
-// added (2026-09-24, EV-13), so only NEW errors fail. Fixing old ones shrinks it: a local run rewrites
-// the file, commit that change (follow-up ticket to EV-3).
+// .basedpyright/baseline.json lists the 1 error EV-15 left (tag_pipeline._plain's
+// hasattr guard, kept as written), so only NEW errors fail. Fixing it shrinks the file:
+// a local run rewrites it, commit that change.
 {
   "include": ["golden_set_pipeline.py", "tag_pipeline.py", "retrieval_pipeline.py", "eval_pipeline.py"],
   "pythonVersion": "3.10",

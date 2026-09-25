@@ -143,9 +143,10 @@ def _warn_quotes_not_in_their_chunk(sheet_path: str, verified: pd.DataFrame) -> 
     chunk, but never by a neighbour holding the same passage, and never
     grouped with another row's copy of it. Not a refusal: the score is
     right for the chunk that was cited; the warning keeps the loss visible.
-    `verified` keeps the sheet's row positions (Excel row = index + 2).
+    `verified` carries each row's own `excel_row` column (its position in
+    the sheet, header is row 1) rather than relying on the DataFrame index.
     """
-    missing = [(n + 2, row.claim_id) for n, row in verified.iterrows()
+    missing = [(row.excel_row, row.claim_id) for _, row in verified.iterrows()
                for quote in _quotes(row)
                if (_normalize_span(quote) or "") not in (_normalize_span(row.chunk_text) or "")]
     if missing:
@@ -236,7 +237,7 @@ def load_ground_truth(memo_id: str, claims_dir: str = "claims", reviewed_dir: st
 
     seen: set[tuple[str, str]] = set()
     for n, claim_id, chunk_id in zip(excel_rows, claim_ids, chunk_ids):
-        if chunk_id is not None:
+        if claim_id is not None and chunk_id is not None:  # a blank claim_id is reported above
             if (claim_id, chunk_id) in seen:
                 problems.append(f"{sheet_path} row {n}: claim {claim_id} lists chunk {chunk_id} twice")
             seen.add((claim_id, chunk_id))
@@ -249,7 +250,8 @@ def load_ground_truth(memo_id: str, claims_dir: str = "claims", reviewed_dir: st
         )
     first_row: dict[str, int] = {}
     for n, claim_id in zip(excel_rows, claim_ids):
-        first_row.setdefault(claim_id, n)
+        if claim_id is not None:
+            first_row.setdefault(claim_id, n)
     for claim_id in sorted(sheet_ids - set(census["claim_id"])):
         problems.append(
             f"{sheet_path} row {first_row[claim_id]}: claim_id {claim_id} is not a claim in "
@@ -265,7 +267,8 @@ def load_ground_truth(memo_id: str, claims_dir: str = "claims", reviewed_dir: st
     rows = pd.DataFrame({"memo_id": memo_id, **cell, "tag": tags,  # cleaned tags replace raw ones
                          "section": [section_of[c] for c in claim_ids],
                          "human_added": [r is not None and r.startswith(_HUMAN_ADDED_PREFIX)
-                                         for r in cell["tag_rationale"]]}, dtype=object)
+                                         for r in cell["tag_rationale"]],
+                         "excel_row": excel_rows}, dtype=object)
     verified = rows[[f and t in _VERIFIED_TAGS for f, t in zip(found, tags)]]
     _warn_quotes_not_in_their_chunk(sheet_path, verified)
     census["bucket"] = census["claim_id"].map(claim_buckets(verified)).fillna("UNVERIFIABLE")
@@ -485,7 +488,9 @@ def _quotes(golden) -> list[str]:
     span is one quote, kept whole: it is text from the chunk, which may itself
     contain the separator (a table row), and split it would match on a
     fragment."""
-    span = golden.evidence_span or ""
+    span = golden.evidence_span
+    if span is None:
+        return [""]
     return span.split(_QUOTE_SEPARATOR) if golden.human_added else [span]
 
 
@@ -988,8 +993,13 @@ def score_run(
             queries = load_claim_queries(claim_queries_path, gts, index_dir)
         except EvalInputError as e:
             problems += e.problems
-    if problems:
-        raise EvalInputError(problems)
+    # Every path that leaves results, queries or results_provenance None has
+    # added to problems, so the None tests change nothing at runtime; they let
+    # the checker see all three are set below. Should a later edit break that,
+    # the fallback message says so instead of an empty refusal.
+    if problems or results is None or queries is None or results_provenance is None:
+        raise EvalInputError(problems or ["internal: retrieval results, claim queries or their provenance "
+                                          "are unset, yet no problem was recorded"])
     skipped = sorted(set(results["memo_id"]) - set(memo_ids))
     if skipped:
         logger.warning("eval: retrieval results also cover %s with no reviewed sheet — not scored", skipped)

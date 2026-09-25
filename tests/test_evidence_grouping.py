@@ -49,6 +49,11 @@ def test_unparseable_chunk_id_is_never_adjacent():
     assert not gsp._same_evidence("d", "nonsense", "ab", "d", "d_2", "xaby")
 
 
+@pytest.mark.parametrize("chunk_id", [None, float("nan"), 12])
+def test_chunk_index_of_a_non_string_is_none(chunk_id):
+    assert gsp._chunk_index_of(chunk_id) is None
+
+
 def test_group_chains_transitively():
     groups = gsp._group_equivalent_chunks(["d", "d", "d"], ["d_0", "d_1", "d_2"], ["abc", "abcd", "abcde"])
     assert groups == [[0, 1, 2]]

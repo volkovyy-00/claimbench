@@ -343,15 +343,18 @@ def _validate_bundle_answer(parsed, labels: list[str]) -> tuple[str, list[str], 
     return verdict, needed, reason.strip()
 
 
-def draft_claim(claim_text: str, entity: str, bundle: list[dict], llm_client: LLMClient) -> dict:
+def draft_claim(claim_text: str, entity: str, bundle: list[dict], llm_client: LLMClient | None) -> dict:
     """
     Draft one claim's verdict over its whole bundle.
 
     An empty bundle (no found chunks) makes no LLM call and returns
-    not_supported with _AUTO_NOT_FOUND_REASON. Otherwise one call with the
-    frozen prompt; an answer that fails to arrive, parse or validate is
-    retried exactly once; if that fails too the verdict is _DRAFT_FAILED and
-    `reason` carries both failures, so a human sees it in the review sheet.
+    not_supported with _AUTO_NOT_FOUND_REASON; `llm_client` is not needed
+    then and may be None (_main builds no client when no claim has a
+    bundle). Otherwise one call with the frozen prompt; an answer that fails
+    to arrive, parse or validate is retried exactly once; if that fails too
+    the verdict is _DRAFT_FAILED and `reason` carries both failures, so a
+    human sees it in the review sheet. A non-empty bundle with no client is
+    _DRAFT_FAILED at once (attempts 0: no call made, nothing to retry).
     Never raises for an LLM or answer problem.
 
     Model, endpoint and temperature come from `llm_client` and `call_llm`
@@ -363,6 +366,10 @@ def draft_claim(claim_text: str, entity: str, bundle: list[dict], llm_client: LL
     if not bundle:
         return {"verdict": "not_supported", "needed_chunk_ids": [],
                 "reason": _AUTO_NOT_FOUND_REASON, "attempts": 0}
+    if llm_client is None:
+        logger.warning("[draft_claim %r] no LLM client for a claim with found chunks", claim_text[:60])
+        return {"verdict": _DRAFT_FAILED, "needed_chunk_ids": [],
+                "reason": "DRAFT FAILED: no LLM client was given for a claim with found chunks", "attempts": 0}
     prompt = _build_bundle_prompt(claim_text, entity, bundle)
     labels = [b["label"] for b in bundle]
     chunk_id_by_label = {b["label"]: b["chunk_id"] for b in bundle}
@@ -720,6 +727,10 @@ def write_review_sheet(path: str, memo_id: str, claims: list[dict]) -> None:
 
     wb = Workbook()
     how_to = wb.active
+    if how_to is None:
+        # openpyxl returns None only for a workbook with no sheets at all,
+        # which a new Workbook() can't be (it starts with one active sheet).
+        raise ValueError(f"{path}: new workbook has no active worksheet")
     how_to.title = "how to"
     for i, line in enumerate(_HOW_TO_TEXT.replace("{memo_id}", memo_id).split("\n"), start=1):
         how_to.cell(row=i, column=1, value=line or None)
@@ -890,7 +901,7 @@ def read_review_sheet(path: str) -> list[dict]:
     key_by_header = {header: key for key, header in _SHEET_HEADERS.items()}
     col = {}
     for i, cell in enumerate(ws[1]):
-        key = key_by_header.get(cell.value)
+        key = key_by_header.get(cell.value) if isinstance(cell.value, str) else None
         if key is None:
             continue
         if key in col:
@@ -965,7 +976,7 @@ def _resolve_quote(quote: str, chunks_by_id: dict[str, dict]) -> list[str] | str
         first, second = (_chunk_index_of(h) for h in hits)
         same_doc = chunks_by_id[hits[0]]["doc_id"] == chunks_by_id[hits[1]]["doc_id"]
         if same_doc and first is not None and second is not None and abs(first - second) == 1:
-            return sorted(hits, key=_chunk_index_of)
+            return hits if first < second else hits[::-1]
     if not hits:
         return ("quote not found in the PDFs' extracted text — it may run across two pieces, or the PDF "
                 "viewer's copy differs (ligatures, hyphenation); paste a shorter part")
@@ -1360,7 +1371,12 @@ def _write_reviewed(df: pd.DataFrame, path: str) -> None:
     try:
         export_for_review(df.map(_plain), tmp)
         wb = load_workbook(tmp)
-        formulas = [cell for row in wb.active.iter_rows() for cell in row if cell.data_type == "f"]
+        ws = wb.active
+        if ws is None:
+            # openpyxl returns None only for a workbook with no sheets at
+            # all, which export_for_review's DataFrame.to_excel can't produce.
+            raise ValueError(f"{tmp} has no active worksheet")
+        formulas = [cell for row in ws.iter_rows() for cell in row if cell.data_type == "f"]
         for cell in formulas:
             cell.data_type = "s"
         if formulas:
@@ -1476,7 +1492,7 @@ def _bundle_client() -> LLMClient:
     """
     base_url, api_key = os.environ.get("LLM_BASE_URL"), os.environ.get("LLM_API_KEY")
     missing = [name for name, value in (("LLM_BASE_URL", base_url), ("LLM_API_KEY", api_key)) if not value]
-    if missing:
+    if not base_url or not api_key:
         raise EnvironmentError(f"Missing required environment variable(s): {', '.join(missing)} — draft needs "
                                f"only LLM_BASE_URL and LLM_API_KEY (its model is pinned: {_BUNDLE_MODEL})")
     return LLMClient(base_url=base_url, api_key=api_key, model=_BUNDLE_MODEL)
