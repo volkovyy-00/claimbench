@@ -123,7 +123,7 @@ python retrieval_pipeline.py embed [memo_id ...]   # PDFs -> retrieval_index/<me
 python retrieval_pipeline.py retrieve              # retrieval/*.yaml + index -> retrieval_results.parquet/.xlsx (no args)
 python retrieval_pipeline.py recheck               # claims/*.md + index -> claim_queries.parquet (each claim's text as a query)
 python eval_pipeline.py score [label]              # golden set + retrieval results -> eval_runs/<run_id>/ (no API calls)
-python eval_pipeline.py report <run_id|latest> [baseline_run_id] [--method=dense] [--k=5]   # -> eval_runs/<run_id>/report_dense_k5.html
+python eval_pipeline.py report <run_id|latest> [baseline_run_id] [--method=dense] [--k=5]   # -> eval_runs/<run_id>/report_dense_k5.html + _claims.html, report_rereview.html
 python golden_set_pipeline.py            # same as build
 ```
 

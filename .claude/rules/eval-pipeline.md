@@ -16,12 +16,26 @@ enforces that structurally.
   parquet tables (`claims`, `evidence`, `claim_hits`, `chunk_hits`,
   `metrics`, `candidates`) + `meta.json` (golden, phrase and results
   fingerprints, model). Never overwrites. One run holds every method and
-  every k = 1…20; only a phrase change makes a new run.
+  every k = 1…20; only a phrase change makes a new run. `claim_hits`
+  records each evidence group's chunk ids (`group_chunk_ids`, EV-1), which
+  the report's claims page reads; a run scored before that cannot be
+  reported on (`_evidence_pieces` refuses it) but still works as a
+  baseline, which reads only `meta.json` and `metrics`.
 - **`report <run_id|latest> [baseline_run_id] [--method=…] [--k=…]`** →
-  `eval_runs/<run_id>/report_<method>_k<k>[_vs_<baseline>].html` (default
-  dense, k=5). In a notebook, `show_report(run, method=, k=, baseline=)` or
-  the `RUN_DEMO_REPORT` cell (kept `False`). k is **per search phrase**; the
-  report also shows the distinct passages each section was handed.
+  three linked pages in `eval_runs/<run_id>/` (default dense, k=5; EV-1):
+  the summary `report_<method>_k<k>[_vs_<baseline>].html`, the claims page
+  (same name ending `_claims`), and `report_rereview.html` (the same for
+  every method and k, so one per run, linking nowhere). Links are relative;
+  only the summary carries baseline changes. No page shows precision, macro
+  recall or MRR — they stay in `metrics.parquet`. The claims page takes
+  each claim's pieces of evidence from the stored `group_chunk_ids`, never
+  grouping again, so a later change to decision 1's code cannot move a
+  quote under another piece's rank (`_evidence_pieces`). In a notebook,
+  `show_report(run, method=, k=, baseline=)` or the `RUN_DEMO_REPORT` cell
+  (kept `False`) shows the summary inline **without its link line** (a
+  relative link resolves against the notebook there) and prints all three
+  paths. k is **per search phrase**; the summary also shows the distinct
+  passages each section was handed.
 - **Imports (never edits)** from `golden_set_pipeline`: `_same_evidence`,
   `_group_equivalent_chunks`, `_UnionFind`, `_HUMAN_ADDED_PREFIX`,
   `_QUOTE_SEPARATOR`, `_chunk_index_of`, `_derive_claim_id`,
@@ -75,7 +89,8 @@ enforces that structurally.
     aren't verbatim in their own chunk after normalization, so only that
     chunk (never a neighbour) can hit them; and two golden rows whose quotes
     both span a chunk-overlap boundary stay two separate evidence groups
-    under decision 1. None of these are fixed — the report explains each.
+    under decision 1. None of these are fixed; the report does not show
+    them (macro recall, which the first affects, stays in `metrics.parquet`).
 
     Full narrative — the ground-truth and hit-matching rules in full, the
     measured false-hit rate, and the exact residual counts and dates:
