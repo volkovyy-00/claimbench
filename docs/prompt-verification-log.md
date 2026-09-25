@@ -1,25 +1,28 @@
 # Prompt-verification log
 
 Run-by-run evidence for the `extract_atomic_claims` prompt-text edits
-(design decisions 5's ticket-007 addendum, 15, and 16 in `CLAUDE.md`).
+(design decisions 5's ticket-007 addendum, 15, and 16 in
+`.claude/rules/golden-set-pipeline.md`).
 
 **Why this file exists.** Prompt-text changes can't be verified by a
 mocked test — they need real live calls, each case repeated 3x to catch
-run-to-run non-determinism (see `CLAUDE.md` → "Testing convention"). The
-resulting transcripts are proof-of-work for a *past* edit: useful when you
-revisit that edit, but not something every session needs in context. So
-`CLAUDE.md` keeps the **rule**, the **why**, the **motivating
-observation**, and the **current known residual** for each decision; the
-blow-by-blow `0/3 → 3/3` results live here.
+run-to-run non-determinism (see `.claude/rules/testing.md` → "Testing
+convention"). The resulting transcripts are proof-of-work for a *past*
+edit: useful when you revisit that edit, but not something every session
+needs in context. So the relevant `.claude/rules/*.md` file keeps the
+**rule**, the **why**, the **motivating observation**, and the **current
+known residual** for each decision; the blow-by-blow `0/3 → 3/3` results
+live here.
 
 **Names and figures.** Company names, people and figures quoted from real
 memos and filings have been replaced with fictional ones (Acme, Borealis,
 Gantry, Globex …) throughout, including in the worked examples, which are
 therefore no longer verbatim copies of the prompt text they describe.
 
-**Precedence.** `CLAUDE.md` wins on anything about the *current* state of
-the code or the prompt. This file is a dated record of what was measured
-when each edit landed; it is not kept in sync with later changes.
+**Precedence.** The relevant `.claude/rules/*.md` file (or `CLAUDE.md` for
+cross-cutting content) wins on anything about the *current* state of the
+code or the prompt. This file is a dated record of what was measured when
+each edit landed; it is not kept in sync with later changes.
 
 ---
 
@@ -130,8 +133,9 @@ the claim, not only the subject):
   or rewords the second copy (run 3), so the WARNING correctly never
   fires (0/3).
 
-**Residual — the motivating case is not fixed** (kept in `CLAUDE.md`
-decision 5 as the current known residual): the Borealis
+**Residual — the motivating case is not fixed** (kept in
+`.claude/rules/golden-set-pipeline.md` decision 5 as the current known
+residual): the Borealis
 cross-acceleration clause, named once by an inline "Cross-acceleration
 Clause:" label at the head of a multi-claim paragraph — 3 of that
 paragraph's claims read a bare "The clause …" per run, identical before
@@ -214,7 +218,8 @@ pass/fail instrument.
   and this corpus is thin on the relevant content, so one focused run is
   a spot check, not proof of absence.
 
-**Measured residuals** (summarized in `CLAUDE.md` decision 15): `OOS-A`
+**Measured residuals** (summarized in `.claude/rules/golden-set-pipeline.md`
+decision 15): `OOS-A`
 1/3 and `OOS-G` 2/3 (with the `$2bn notional` split-off, closure vs.
 attached-measured-attribute) — logged with their failure mode, not chased
 with re-runs. In-context, the mangled upgrade-rationale sentence and the
@@ -307,7 +312,8 @@ against `1b7019d` before the edit.
   upgrade-rationale sentence and the `_STRANDED_POINTING_WORD_RE` wobble
   on "This results in…" are pre-existing (decision 15), not counted here.
 
-**Measured residuals** (summarized in `CLAUDE.md` decision 16):
+**Measured residuals** (summarized in `.claude/rules/golden-set-pipeline.md`
+decision 16):
 
 - The isolated many-item run-on `B-driver-real`: the exact bare "has"
   form only fell to ≈1/3 (not 0/3) and the drivers are still severed ~2/3
@@ -337,7 +343,8 @@ against `1b7019d` before the edit.
 ## `tag_pipeline` prompt (design decision 18)
 
 Run-by-run evidence behind `tag_pipeline.py`'s row-tagging prompt (design
-decision 18 in `CLAUDE.md`). Unlike the sections above, this prompt tags
+decision 18 in `.claude/rules/tag-pipeline.md`). Unlike the sections above,
+this prompt tags
 evidence *rows* (`extractive` / `synthesized` / `unverifiable` / `unsure`),
 not claim splits — a different judgement task with its own worked
 examples and its own model choice.

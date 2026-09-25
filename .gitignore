@@ -1,9 +1,13 @@
 .venv/
 .env
 __pycache__/
+
+# Checkpoint/review artifacts are regenerated demo output, not the
+# deliverable (see CLAUDE.md's Commands for how they're recreated).
 *.parquet
 *.xlsx
-.claude/
+.claude/*
+!.claude/rules/
 sources/
 docs/superpowers/
 .pytest_cache/

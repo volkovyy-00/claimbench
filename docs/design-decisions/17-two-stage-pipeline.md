@@ -1,7 +1,7 @@
 # Design decision 17 — full narrative
 
 Split out of `CLAUDE.md` to keep that file's per-session load down; the
-condensed rule and current residual live there under design decision 17.
+condensed rule and current residual now live in `.claude/rules/golden-set-pipeline.md` under design decision 17.
 This file holds the full spec text and every place the shipped
 implementation went further than that spec.
 

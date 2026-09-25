@@ -1,7 +1,7 @@
 # Design decision 16 — full narrative
 
 Split out of `CLAUDE.md` to keep that file's per-session load down; the
-condensed rule and current residual live there under design decision 16.
+condensed rule and current residual now live in `.claude/rules/golden-set-pipeline.md` under design decision 16.
 This file holds the full observed-failure narrative behind it. Live
 verification run-by-run: `docs/prompt-verification-log.md` →
 "Decision 16 / ticket 009" and "Embedded worked examples".
@@ -13,7 +13,7 @@ never decay to a bare "X has Y."** `extract_atomic_claims`'s prompt
 gained one paragraph appended to the second self-test (the referent
 test ticket 007 built); the docstring gained a matching paragraph. No
 code-path change, no committed test — a prompt-text edit verified by
-live runs (see "Testing convention").
+live runs (see `.claude/rules/testing.md` → "Testing convention").
 
 **The rule is mechanical, not a checkability judgment.** It fires on a
 shape — a split has reduced a claim to "X has Y." / "X is Y." while the

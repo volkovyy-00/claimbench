@@ -95,7 +95,8 @@ version.
 A spec or a plan is working material, not the record. Before merging, move
 anything a future session needs into the file that owns it (section 6):
 
-- a new or changed rule → `CLAUDE.md`;
+- a new or changed rule → `CLAUDE.md` (cross-cutting) or `.claude/rules/*.md`
+  (module-scoped);
 - why it was decided that way, and any residual it still has, stated as a
   fact → `docs/design-decisions/NN-*.md`;
 - the work to fix a residual, or any other follow-up → a new `EV` ticket,
@@ -112,7 +113,7 @@ wins, and the other place is fixed.
 | Question | Owner |
 |---|---|
 | What work is open or next, including the fix for a known residual? | Jira project `EV` |
-| What is the rule; where does the code live? | `CLAUDE.md`: rules and map, no dated status ("currently …", "(open)") |
+| What is the rule; where does the code live? | `CLAUDE.md` for cross-cutting rules and the repo map, `.claude/rules/*.md` for module-scoped rules — no dated status either place ("currently …", "(open)") |
 | Why was it decided that way, and what does it still get wrong? | `docs/design-decisions/NN-*.md`, citing the `EV` key of any fix |
 | What does this function do? | its docstring |
 | What did live runs measure? | `docs/prompt-verification-log.md` |

@@ -1,7 +1,7 @@
 # Design decision 15 — full narrative
 
 Split out of `CLAUDE.md` to keep that file's per-session load down; the
-condensed rule and current residual live there under design decision 15.
+condensed rule and current residual now live in `.claude/rules/golden-set-pipeline.md` under design decision 15.
 This file holds the full observed-failure narrative behind it. Live
 verification run-by-run: `docs/prompt-verification-log.md` →
 "Decision 15 / ticket 008" and "Embedded worked examples".
@@ -16,7 +16,7 @@ exception), a short modifier-survival paragraph (placed just after the
 adjective counterweight), and a one-clause parenthetical on the first
 self-test; the docstring gained a matching summary paragraph. No
 code-path change, no committed test — a prompt-text edit verified by
-live runs (see "Testing convention").
+live runs (see `.claude/rules/testing.md` → "Testing convention").
 
 **The rule is a principle, not a trigger-word list.** A sentence closes
 over a list when it asserts something true only of the whole set — a
