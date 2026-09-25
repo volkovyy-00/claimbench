@@ -2827,9 +2827,11 @@ def preview_claim_splits(memo_sections: list[tuple], llm_client: LLMClient) -> N
 # prompt below. Never wired into build_golden_set_batch.
 RUN_CLAIM_SPLIT_PREVIEW = False
 
+_DEFAULT_CONFIG_PATH = "memos.yaml"
+
 if RUN_CLAIM_SPLIT_PREVIEW:
     preview_claim_splits(
-        load_memo_sections_from_config("memos.yaml"),
+        load_memo_sections_from_config(_DEFAULT_CONFIG_PATH),
         LLMClient.from_env(),
     )
 
@@ -2910,7 +2912,7 @@ def load_memo_sections_from_claims(
 # beside this, in §6g.
 
 # %%
-def run_extract(config_path: str = "memos.yaml", claims_dir: str = "claims", *, llm_client) -> dict:
+def run_extract(config_path: str = _DEFAULT_CONFIG_PATH, claims_dir: str = "claims", *, llm_client) -> dict:
     """
     Stage 1: read memos.yaml, run extract_atomic_claims on each section, and
     write claims/<memo_id>.md -- but only when the memo's source_folder
@@ -3097,7 +3099,7 @@ def _main(argv: list[str]) -> None:
         raise SystemExit(f"usage: python golden_set_pipeline.py [extract|build] (got {command!r})")
     client = LLMClient.from_env()
     if command == "extract":
-        if run_extract("memos.yaml", "claims", llm_client=client)["failed"]:
+        if run_extract(_DEFAULT_CONFIG_PATH, "claims", llm_client=client)["failed"]:
             raise SystemExit(1)
     else:
         run_build("claims", llm_client=client)
