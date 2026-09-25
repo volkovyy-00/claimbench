@@ -25,9 +25,14 @@ enforces that structurally.
   three linked pages in `eval_runs/<run_id>/` (default dense, k=5; EV-1):
   the summary `report_<method>_k<k>[_vs_<baseline>].html`, the claims page
   (same name ending `_claims`), and `report_rereview.html` (the same for
-  every method and k, so one per run, linking nowhere). Links are relative;
-  only the summary carries baseline changes. No page shows precision, macro
-  recall or MRR — they stay in `metrics.parquet`. The claims page takes
+  every method and k, so one per run, linking only within itself). Links
+  are relative; only the summary carries baseline changes. No page shows
+  precision or MRR — they stay in `metrics.parquet`. The claims page shows
+  recall averaged per claim (EV-19) on each claim, memo and section, read
+  from the stored metrics rows (`_heading_counts`, never recomputed), with
+  a plain-words note on what pulls it down; the summary shows no recall.
+  Claim statuses are four badge classes (`_STATUS_CLASS` + `hit`); piece
+  badges are grey on purpose (`_piece_badge` says why). The claims page takes
   each claim's pieces of evidence from the stored `group_chunk_ids`, never
   grouping again, so a later change to decision 1's code cannot move a
   quote under another piece's rank (`_evidence_pieces`). In a notebook,
@@ -89,8 +94,11 @@ enforces that structurally.
     aren't verbatim in their own chunk after normalization, so only that
     chunk (never a neighbour) can hit them; and two golden rows whose quotes
     both span a chunk-overlap boundary stay two separate evidence groups
-    under decision 1. None of these are fixed; the report does not show
-    them (macro recall, which the first affects, stays in `metrics.parquet`).
+    under decision 1. None of these are fixed. Since EV-19 the claims page
+    shows recall (which the first affects) with a plain-words note that
+    alternative or duplicate sources pull it down — that note is the page's
+    explanation of the duplicated-document cap; the other residuals stay
+    invisible on the report.
 
     Full narrative — the ground-truth and hit-matching rules in full, the
     measured false-hit rate, and the exact residual counts and dates:
