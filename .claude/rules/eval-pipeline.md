@@ -37,15 +37,19 @@ enforces that structurally.
   recall averaged per claim (EV-19) on each claim, memo and section, read
   from the stored metrics rows (`_heading_counts`, never recomputed), with
   a plain-words note on what pulls it down. The summary (EV-20,
-  `_metrics_block`) shows, per search method, recall averaged per claim,
-  pooled pieces retrieved and MRR — recall and MRR with their baseline
-  change — and each memo's citation precision for the chosen method, each
-  with a plain-words note; only the summary shows precision or MRR.
-  Pooled pieces' counts are the one summary measure counted from
-  `claim_hits` rather than read from a stored metrics row (`_pooled_pieces`). The summary
-  refuses a missing all-memo or memo row by name, in the run or the
-  baseline (`_required_row`, shared with the claims page); only a section
-  row may be absent. Claim statuses are four badge classes (`_MISS_KEYS` +
+  `_metrics_block`) shows, per search method, claim coverage, recall
+  averaged per claim, pooled pieces retrieved and MRR — recall and MRR
+  with their baseline change (the gap between the two figures shown) — and
+  each memo's citation precision for the chosen method, each with a
+  plain-words note; the MRR note flags a baseline searched with other
+  phrase counts. Only the summary shows precision or MRR. Pooled pieces'
+  counts are the one summary measure counted from `claim_hits` rather than
+  read from a stored metrics row (`_pooled_pieces`; EV-21 stores them). The
+  summary refuses a missing all-memo or memo row by name, in the run or
+  the baseline, including the all-memo row at every k the coverage chart
+  draws (`_required_row`, shared with the claims page; `_baseline_row`
+  gives a baseline's refusal its own advice); only a section row may be
+  absent. Claim statuses are four badge classes (`_MISS_KEYS` +
   `hit`; the miss key is the class, captioned by `_miss_caption`, rendered
   by `_status_badge` on the claims page and the summary's traced examples); piece
   badges are grey on purpose (`_piece_badge` says why). The claims page takes

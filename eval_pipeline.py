@@ -727,12 +727,16 @@ def _sha256(data: bytes) -> str:
 def _round_half_away(x: float) -> int:
     """x rounded to a whole number, halves away from zero (12.5 -> 13,
     -2.5 -> -3). Python's round() sends halves to the even neighbour, so 1/8
-    would show as 12% but 3/8 as 38%. x is first snapped to 12 decimals: a
-    stored fraction scaled by 100 can land a hair under its half (100 * 0.145
-    is 14.499999999999998, an error near 1e-14), which would otherwise round
-    the wrong way. The window stays far narrower than the closest a real
-    figure can sit to a half without being one: a count ratio, or an MRR (a
-    mean of 1/rank over ranks up to 20), is at least ~1e-11 away."""
+    would show as 12% but 3/8 as 38%. x is first snapped to 12 decimals,
+    so a value within 5e-13 of a half counts as that half: a stored fraction
+    scaled by 100 carries float error near 1e-14 (100 * 0.145 is
+    14.499999999999998) and would otherwise round the wrong way. A count
+    ratio (_pct) never sits that close to a half without being one. A mean —
+    MRR, a mean of 1/rank, or recall averaged per claim, a mean of per-claim
+    fractions — can, once a run's depth or pieces per claim grow large (its
+    smallest gap to a half is about 1 / (2 · claims · lcm of the ranks or
+    piece counts)): such a figure is shown as the half, rounded away from
+    zero, a difference no reader could see at two places."""
     x = round(x, 12)
     return int(np.sign(x) * np.floor(abs(x) + 0.5))
 
@@ -740,6 +744,13 @@ def _round_half_away(x: float) -> int:
 def _pct(num, den) -> str:
     """A percentage with its counts, as every number on the report is shown."""
     return f"{_round_half_away(100 * num / den)}% ({int(num)}/{int(den)})" if den else "n/a (0/0)"
+
+
+def _mean_pct(x) -> str:
+    """A mean of per-claim fractions (recall averaged per claim) as a whole
+    percent, rounded as _pct rounds, or 'n/a' for NaN. No (x/y): a mean of
+    fractions has none, so callers name what it averages."""
+    return "n/a" if pd.isna(x) else f"{_round_half_away(100 * x)}%"
 
 
 def _score(x) -> str:
@@ -1157,9 +1168,8 @@ _METHOD_LABEL = {"dense": "meaning search (dense)", "keyword": "keyword search (
 _METHOD_COLOR = {"dense": "#2563eb", "keyword": "#d97706", "both": "#059669"}
 # The three miss reasons' stable keys — each is also its badge class on
 # the claims page and the summary (.badge.other/.deep/.none; "retrieved at
-# k" is .hit; _status_badge,
-# and the piece-level grey .miss is separate on purpose, _piece_badge
-# says why). miss_taxonomy assigns the key; every caption is built from
+# k" is .hit — both rendered by _status_badge; the piece-level grey .miss is
+# separate on purpose, _piece_badge says why). miss_taxonomy assigns the key; every caption is built from
 # it, so rewording a caption can never break a lookup.
 _MISS_KEYS = ("other", "deep", "none")
 
@@ -1408,10 +1418,16 @@ def _required_row(run: Run, scope: str, memo_id: str, section: str, method: str,
     return row
 
 
-def _delta(current, base, field: str = "coverage") -> str:
-    """A metrics row's change against the baseline's: '+33 pts vs baseline'
-    for a fraction (coverage, recall_macro), '+0.33 vs baseline' for MRR,
-    a score. The change is the gap between the two figures as the page shows
+def _baseline_row(baseline: Run | None, scope: str, memo_id: str, section: str, method: str, k: int):
+    """The baseline's row for the same view, None without a baseline; a
+    missing row is refused with the advice a baseline needs (_required_row)."""
+    return None if baseline is None else _required_row(baseline, scope, memo_id, section, method, k, baseline=True)
+
+
+def _delta(current, base, field: str = "coverage", *, score: bool = False) -> str:
+    """A metrics row's change in `field` against the baseline's: '+33 pts
+    vs baseline' for a fraction (coverage, recall_macro), or '+0.33 vs
+    baseline' when the caller passes score=True (MRR). The change is the gap between the two figures as the page shows
     them — each x 100, rounded halves away from zero, as _pct and _score
     round — so it always adds up with the numbers beside it (67% against
     33% reads +34, not the unrounded +33). Both are whole numbers, so equal
@@ -1424,7 +1440,7 @@ def _delta(current, base, field: str = "coverage") -> str:
     if pd.isna(now) or pd.isna(then):
         return ""
     n = _round_half_away(100 * now) - _round_half_away(100 * then)
-    text = f"{n / 100:+.2f}" if field == "mrr" else f"{n:+d} pts"
+    text = f"{n / 100:+.2f}" if score else f"{n:+d} pts"
     cls = "delta neg" if n < 0 else "delta"
     return f'<div class="{cls}">{text} vs baseline</div>'
 
@@ -1442,11 +1458,12 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
     def y(v):
         return top + (1 - v) * (height - top - bottom)
 
-    def points(metrics, m):
+    def points(r: Run, m: str, *, is_baseline: bool = False):
+        # every k is read, not just the page's: a lost row would otherwise join its neighbours silently
         out = []
         for kk in range(1, depth + 1):
-            row = _metric_row(metrics, "all", "ALL", "ALL", m, kk)
-            if row is not None and not pd.isna(row.coverage):
+            row = _required_row(r, "all", "ALL", "ALL", m, kk, baseline=is_baseline)
+            if not pd.isna(row.coverage):   # NaN: no verifiable claims, nothing to draw
                 out.append(f"{x(kk):.1f},{y(row.coverage):.1f}")
         return " ".join(out)
 
@@ -1465,11 +1482,11 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
                  f'stroke="#9ca3af" stroke-dasharray="2 3"/>')
     if baseline is not None:
         parts.append(f'<polyline fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6 4" '
-                     f'points="{points(baseline.metrics, method)}"/>')
+                     f'points="{points(baseline, method, is_baseline=True)}"/>')
     for m in _RETRIEVAL_METHODS:
         weight = 3 if m == method else 1.5
         parts.append(f'<polyline fill="none" stroke="{_METHOD_COLOR[m]}" stroke-width="{weight}" '
-                     f'points="{points(run.metrics, m)}"/>')
+                     f'points="{points(run, m)}"/>')
     for i, m in enumerate(_RETRIEVAL_METHODS):
         parts.append(f'<text x="{left + 8}" y="{top + 14 + 14 * i}" font-size="12" fill="{_METHOD_COLOR[m]}">'
                      f'{_e(_METHOD_LABEL[m])}</text>')
@@ -1555,11 +1572,12 @@ def _pooled_pieces(run: Run, method: str, k: int) -> tuple[int, int]:
     over every verifiable claim. The one summary measure not read from a
     stored metrics row: metrics.parquet keeps only the fraction
     (recall_micro), and every percentage shows its counts.
-    claim_hits holds one row per claim x method x piece, hit or not, and
-    _within_k is the claims page's hit rule, so the fraction equals the
-    stored recall_micro."""
+    claim_hits holds one row per claim x method x piece, hit or not, and a
+    piece counts when its best rank is <= k (a NaN rank never is) — the
+    comparison _claim_metrics_by_k makes for recall_micro, so the fraction
+    equals the stored one."""
     ranks = run.claim_hits.loc[run.claim_hits["method"] == method, "best_rank"]
-    return sum(_within_k(r, k) for r in ranks), len(ranks)
+    return int((ranks <= k).sum()), len(ranks)
 
 
 def _metrics_block(run: Run, method: str, k: int, baseline: Run | None) -> str:
@@ -1573,32 +1591,41 @@ def _metrics_block(run: Run, method: str, k: int, baseline: Run | None) -> str:
     verifiable claims shows 'n/a' and leaves out the recall and MRR notes,
     which would have nothing to describe."""
     out = [f"<h2>Finer measures by search method (k = {k})</h2>",
-           '<div class="scroll"><table><tr><th>search method</th><th>evidence recall, averaged per claim</th>'
-           "<th>pieces of evidence retrieved, pooled</th><th>MRR</th></tr>"]
-    totals = {m: _required_row(run, "all", "ALL", "ALL", m, k) for m in _RETRIEVAL_METHODS}
-    for m, row in totals.items():
-        base = _required_row(baseline, "all", "ALL", "ALL", m, k, baseline=True) if baseline is not None else None
+           '<div class="scroll"><table><tr><th>search method</th><th>claim coverage</th>'
+           "<th>evidence recall, averaged per claim</th><th>pieces of evidence retrieved, pooled</th>"
+           "<th>MRR</th></tr>"]
+    for m in _RETRIEVAL_METHODS:
+        row = _required_row(run, "all", "ALL", "ALL", m, k)
+        base = _baseline_row(baseline, "all", "ALL", "ALL", m, k)
         name = f"<th>{_e(_METHOD_LABEL[m])}</th>" if m == method else f"<td>{_e(_METHOD_LABEL[m])}</td>"
-        recall = ("n/a" if pd.isna(row.recall_macro) else
-                  f"{_round_half_away(100 * row.recall_macro)}% avg over {_count(int(row.claims), 'claim')}")
-        out.append(f"<tr>{name}<td>{recall}{_delta(row, base, 'recall_macro')}</td>"
+        recall = _mean_pct(row.recall_macro) + ("" if pd.isna(row.recall_macro)
+                                                else f" avg over {_count(int(row.claims), 'claim')}")
+        out.append(f"<tr>{name}<td>{_pct(row.covered, row.claims)}</td>"
+                   f"<td>{recall}{_delta(row, base, 'recall_macro')}</td>"
                    f"<td>{_pct(*_pooled_pieces(run, m, k))}</td>"
-                   f"<td>{_score(row.mrr)}{_delta(row, base, 'mrr')}</td></tr>")
+                   f"<td>{_score(row.mrr)}{_delta(row, base, 'mrr', score=True)}</td></tr>")
     out.append("</table></div>")
-    head = totals[method]
     verifiable = run.claims[run.claims["bucket"] != "UNVERIFIABLE"]
-    if not verifiable.empty:   # the MRR note's range is taken over these claims' sections
-        counts = sorted({run.meta["phrase_counts"][memo_id][section]
-                         for memo_id, section in zip(verifiable["memo_id"], verifiable["section"])})
-        phrases = _count(counts[0], "phrase") if len(counts) == 1 else f"{counts[0]}–{counts[-1]} phrases"
+    if not verifiable.empty:   # the MRR note's ranges are taken over these claims' sections
+        sections = set(zip(verifiable["memo_id"], verifiable["section"]))
+
+        def phrases(r: Run) -> str:
+            counts = sorted({r.meta["phrase_counts"][memo_id][section] for memo_id, section in sections})
+            return _count(counts[0], "phrase") if len(counts) == 1 else f"{counts[0]}–{counts[-1]} phrases"
+
+        # MRR rises with the phrase count alone, so a change against a baseline searched otherwise says so
+        other = baseline is not None and any(
+            run.meta["phrase_counts"][memo_id][section] != baseline.meta["phrase_counts"][memo_id][section]
+            for memo_id, section in sections)
+        caveat = (f"; the baseline's sections were searched with {phrases(baseline)} each, so part of the MRR "
+                  "change comes from the number of phrases, not better phrases" if other and baseline else "")
         out.append('<div class="notes">'
                    "<p><b>Evidence recall</b> counts every piece of evidence a claim lists; alternative sources "
-                   "for the same fact pull it down, so read it beside claim coverage "
-                   f"({_pct(head.covered, head.claims)} above).</p>"
+                   "for the same fact pull it down, so read it beside the same method's claim coverage, in the "
+                   "column before it.</p>"
                    "<p><b>MRR</b> (mean reciprocal rank) takes each claim's best rank over all of its section's "
-                   f"search phrases (sections here are searched with {phrases} each), so it is optimistic and "
-                   "not comparable between "
-                   "sections.</p></div>")
+                   f"search phrases (sections here are searched with {phrases(run)} each), so it is optimistic "
+                   f"and not comparable between sections{caveat}.</p></div>")
     out.append(f'<table class="narrow"><tr><th>memo</th><th>citation precision, {_e(_METHOD_LABEL[method])}</th></tr>')
     for memo_id in run.meta["memos"]:
         row = _required_row(run, "memo", memo_id, "ALL", method, k)
@@ -1629,7 +1656,7 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
         return _metric_row(r.metrics, "section", memo_id, section, method, k)
 
     head = _required_row(run, "all", "ALL", "ALL", method, k)
-    base = _required_row(baseline, "all", "ALL", "ALL", method, k, baseline=True) if baseline is not None else None
+    base = _baseline_row(baseline, "all", "ALL", "ALL", method, k)
     covered, claims = int(head.covered), int(head.claims)
     ext = (int(head.covered_extractive), int(head.claims_extractive))
     syn = (int(head.covered_synthesized), int(head.claims_synthesized))
@@ -1678,8 +1705,7 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
              "<th>change</th></tr>"]
     for memo_id in run.meta["memos"]:
         m = _required_row(run, "memo", memo_id, "ALL", method, k)
-        mb = (_required_row(baseline, "memo", memo_id, "ALL", method, k, baseline=True)
-              if baseline is not None else None)
+        mb = _baseline_row(baseline, "memo", memo_id, "ALL", method, k)
         # every claims-file section, plus any section searched that the claims file lacks
         sections = sorted(set(run.claims.loc[run.claims["memo_id"] == memo_id, "section"])
                           | set(section_rows.loc[section_rows["memo_id"] == memo_id, "section"]))
@@ -1799,7 +1825,7 @@ def _heading_counts(row, k: int) -> str:
     of per-claim fractions has none, so it names what it averages, over the
     claim count that opens the line."""
     return (f"{_count(int(row.claims), 'claim')} · {_pct(row.covered, row.claims)} retrieved at k = {k} · "
-            f"recall {_round_half_away(100 * row.recall_macro)}%, the mean of each claim's piece recall")
+            f"recall {_mean_pct(row.recall_macro)}, the mean of each claim's piece recall")
 
 
 def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: str | None,

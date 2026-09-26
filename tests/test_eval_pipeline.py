@@ -1238,11 +1238,11 @@ def test_summary_shows_each_methods_recall_pooled_pieces_and_mrr(world):
     # At k=5 (_results_rows): dense finds C1 and C4 at rank 2 and never C2;
     # keyword finds only C2, at rank 1; both finds C2 and C4 at 2, C1 at 3.
     block = _finer(ep.render_summary(_run(), k=5))
-    assert ("<tr><th>meaning search (dense)</th><td>67% avg over 3 claims</td>"
+    assert ("<tr><th>meaning search (dense)</th><td>67% (2/3)</td><td>67% avg over 3 claims</td>"
             "<td>67% (2/3)</td><td>0.33</td></tr>") in block
-    assert ("<tr><td>keyword search (BM25)</td><td>33% avg over 3 claims</td>"
+    assert ("<tr><td>keyword search (BM25)</td><td>33% (1/3)</td><td>33% avg over 3 claims</td>"
             "<td>33% (1/3)</td><td>0.33</td></tr>") in block
-    assert ("<tr><td>both combined (RRF)</td><td>100% avg over 3 claims</td>"
+    assert ("<tr><td>both combined (RRF)</td><td>100% (3/3)</td><td>100% avg over 3 claims</td>"
             "<td>100% (3/3)</td><td>0.44</td></tr>") in block   # (1/3 + 1/2 + 1/2) / 3
     assert "<tr><th>keyword search (BM25)</th>" in ep.render_summary(_run("b"), method="keyword")
 
@@ -1255,7 +1255,8 @@ def test_pooled_pieces_count_evidence_pieces_not_claims(world):
     rows.insert(2, _row(BP, C2, "d.pdf_4", "plants in Ohio", "synthesized"))
     _write_reviewed(rows)
     block = _finer(ep.render_summary(_run(), k=3))
-    assert "<th>meaning search (dense)</th><td>83% avg over 3 claims</td><td>75% (3/4)</td>" in block
+    # every claim has a piece found (coverage 3/3), yet one of C2's two pieces is not
+    assert "<th>meaning search (dense)</th><td>100% (3/3)</td><td>83% avg over 3 claims</td><td>75% (3/4)</td>" in block
 
 
 @pytest.mark.parametrize("value, shown", [(0.125, "0.13"), (1 / 3, "0.33"), (0.0, "0.00"), (float("nan"), "n/a"),
@@ -1282,7 +1283,7 @@ def test_summary_shows_each_memos_citation_precision_with_counts(world):
 def test_summary_explains_recall_mrr_and_precision_in_plain_words(world):
     block = _finer(ep.render_summary(_run(), k=5))
     assert "counts every piece of evidence a claim lists" in block
-    assert "read it beside claim coverage (67% (2/3) above)" in block
+    assert "read it beside the same method's claim coverage, in the column before it" in block
     assert "best rank over all of its section's search phrases (sections here are searched with 1 phrase each)" \
         in block
     assert "counts only the retrieved passages someone cited as evidence" in block
@@ -1308,10 +1309,12 @@ def test_summary_shows_recall_and_mrr_changes_against_a_baseline(world):
     current = _run("edited", NOW + timedelta(seconds=1))
     # dense at k=2: recall 2/3 -> 3/3, MRR (1/2 + 0 + 1/2)/3 -> (1/2 + 1 + 1/2)/3
     block = _finer(ep.render_summary(current, k=2, baseline=base))
-    assert ('<td>100% avg over 3 claims<div class="delta">+33 pts vs baseline</div></td><td>100% (3/3)</td>'
+    assert ('<td>100% (3/3)</td><td>100% avg over 3 claims<div class="delta">+33 pts vs baseline</div></td>'
+            '<td>100% (3/3)</td>'
             '<td>0.67<div class="delta">+0.34 vs baseline</div></td>') in block   # 0.67 - 0.33 as shown
     # both is unchanged: its change shows as zero, not as a fall
-    assert ('<tr><td>both combined (RRF)</td><td>67% avg over 3 claims<div class="delta">+0 pts vs baseline</div>'
+    assert ('<tr><td>both combined (RRF)</td><td>67% (2/3)</td><td>67% avg over 3 claims'
+            '<div class="delta">+0 pts vs baseline</div>'
             '</td><td>67% (2/3)</td><td>0.33<div class="delta">+0.00 vs baseline</div></td></tr>') in block
     reverse = _finer(ep.render_summary(base, k=2, baseline=current))
     assert '<div class="delta neg">-33 pts vs baseline</div>' in reverse
@@ -1327,7 +1330,7 @@ def test_summary_shows_recall_and_mrr_changes_against_a_baseline(world):
 ])
 def test_a_change_is_the_gap_between_the_two_figures_shown(field, now, then, shown):
     ns = types.SimpleNamespace
-    assert ep._delta(ns(**{field: now}), ns(**{field: then}), field) == shown
+    assert ep._delta(ns(**{field: now}), ns(**{field: then}), field, score=field == "mrr") == shown
 
 
 def test_a_baseline_with_no_value_shows_no_change(world):
@@ -1341,7 +1344,8 @@ def test_a_baseline_with_no_value_shows_no_change(world):
 
 
 _MISSING_ROWS = [
-    (lambda m: (m["scope"] == "all") & (m["method"] == "keyword"), "the all-memo total at method=keyword, k=5"),
+    (lambda m: (m["scope"] == "all") & (m["method"] == "keyword") & (m["k"] == 5),
+     "the all-memo total at method=keyword, k=5"),
     (lambda m: m["scope"] == "memo", f"memo {MEMO} at method=dense, k=5"),
 ]
 
@@ -1368,10 +1372,47 @@ def test_summary_refuses_a_baseline_missing_a_row_it_reads(world, drop, named):
     assert "choose another baseline run" in str(refused.value)
 
 
+def test_the_coverage_chart_refuses_a_missing_total_at_any_k(world):
+    # the chart draws every k up to the depth, not just the page's k: a lost
+    # k=7 row would otherwise join k=6 to k=8 and look complete
+    run = _run()
+    m = run.metrics
+    run.metrics = m[~((m["scope"] == "all") & (m["method"] == "keyword") & (m["k"] == 7))]
+    with pytest.raises(ep.EvalInputError, match="the all-memo total at method=keyword, k=7"):
+        ep.render_summary(run, k=5)
+
+
+def test_the_baseline_line_refuses_a_missing_total_at_any_k(world):
+    base = _run("base", NOW)
+    m = base.metrics
+    base.metrics = m[~((m["scope"] == "all") & (m["method"] == "dense") & (m["k"] == 7))]
+    current = _run("again", NOW + timedelta(seconds=1))
+    with pytest.raises(ep.EvalInputError, match="choose another baseline run"):
+        ep.render_summary(current, k=5, baseline=base)
+
+
+def test_mrr_note_warns_when_the_baseline_searched_with_other_phrase_counts(world):
+    # MRR takes a best rank over all of a section's phrases, so more phrases alone lift it
+    base = _run("base", NOW)
+    extra = [dict(_result(BP, m, "second", 1, "d.pdf_3"), phrase_index=1) for m in ("dense", "both")]
+    _write_results(_results_rows() + extra)
+    _write_phrases({BP: ["business profile", "second"], OWN: ["shareholders"]})
+    block = _finer(ep.render_summary(_run("more", NOW + timedelta(seconds=1)), baseline=base))
+    assert ("the baseline's sections were searched with 1 phrase each, so part of the MRR change "
+            "comes from the number of phrases") in block
+
+
+def test_mrr_note_stays_quiet_when_the_phrase_counts_match(world):
+    base = _run("base", NOW)
+    _with_c2s_evidence_first_for_dense()   # reworded, same count
+    block = _finer(ep.render_summary(_run("edited", NOW + timedelta(seconds=1)), baseline=base))
+    assert "number of phrases" not in block
+
+
 def test_a_run_with_no_verifiable_claims_shows_na_without_the_notes(world):
     _write_reviewed([dict(r, tag="unverifiable", tag_draft="unverifiable") for r in _reviewed_rows()])
     block = _finer(ep.render_summary(_run(), k=5))
-    assert "<th>meaning search (dense)</th><td>n/a</td><td>n/a (0/0)</td><td>n/a</td>" in block
+    assert "<th>meaning search (dense)</th><td>n/a (0/0)</td><td>n/a</td><td>n/a (0/0)</td><td>n/a</td>" in block
     assert "counts every piece" not in block
     assert "best rank" not in block
     # passages were still handed over and none was cited: a real zero, not n/a

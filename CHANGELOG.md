@@ -18,16 +18,19 @@ minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 ### Added
 
 - The report's summary page shows finer measures after the coverage
-  chart: for each search method at the chosen k, evidence recall averaged
-  per claim, pieces of evidence retrieved pooled (with counts) and MRR —
-  recall and MRR with their change against a baseline run — and each
-  memo's citation precision for the chosen method (with counts). Each
-  comes with a plain-words note: recall counts every piece of evidence a
-  claim lists, so it reads beside claim coverage; MRR takes a claim's best
-  rank over all of its section's search phrases (the page gives the range
-  of phrase counts); precision counts only passages someone cited, so it
-  is a floor. The numbers equal the run's `metrics.parquet` rows. The
-  claims and re-review pages still show no precision or MRR. (EV-20)
+  chart: for each search method at the chosen k, claim coverage, evidence
+  recall averaged per claim, pieces of evidence retrieved pooled (with
+  counts) and MRR — recall and MRR with their change against a baseline
+  run — and each memo's citation precision for the chosen method (with
+  counts). Each comes with a plain-words note: recall counts every piece of
+  evidence a claim lists, so it reads beside the same method's coverage;
+  MRR takes a claim's best rank over all of its section's search phrases
+  (the page gives the range of phrase counts, and says so when the
+  baseline was searched with other counts); precision counts only
+  passages someone cited, so it is a floor. Every figure is read from the
+  run's `metrics.parquet` rows except the pooled counts, which are counted
+  from its hit rows and match its stored pooled recall. The claims and
+  re-review pages still show no precision or MRR. (EV-20)
 
 ### Changed
 
@@ -35,8 +38,11 @@ minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
   wear the claims page's status colours; a missed example shows its miss
   reason in words instead of "no — not in the top k". (EV-20)
 - The summary refuses, with a named error, a run or a baseline whose
-  `metrics.parquet` is missing the all-memo or a memo row it reads. Such a
-  run used to show zeros, and such a baseline a blank change. No run
+  `metrics.parquet` is missing the all-memo or a memo row it reads —
+  including the all-memo row at any k the coverage chart draws. Such a run
+  used to show zeros or a chart line quietly skipping that k, and such a
+  baseline a blank change; a refused baseline is told to choose another
+  baseline run, since `score` rebuilds only today's run. No run
   produced by this repository's `score` is affected — every run writes
   those rows. (EV-20)
 - A change against a baseline is now the gap between the two figures the
