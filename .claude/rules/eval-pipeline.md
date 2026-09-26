@@ -26,7 +26,10 @@ enforces that structurally.
   the summary `report_<method>_k<k>[_vs_<baseline>].html`, the claims page
   (same name ending `_claims`), and `report_rereview.html` (the same for
   every method and k, so one per run, linking only within itself). Links
-  are relative; only the summary carries baseline changes. No page shows
+  are relative; only the summary carries baseline changes. A run scored at
+  another retrieval depth than today's `_RETRIEVE_DEPTH` is refused
+  (`_check_view`): the pages' rank labels speak today's depth. A baseline
+  is not depth-checked — deeper retrieval never changes the top k. No page shows
   precision or MRR — they stay in `metrics.parquet`. The claims page shows
   recall averaged per claim (EV-19) on each claim, memo and section, read
   from the stored metrics rows (`_heading_counts`, never recomputed), with

@@ -879,6 +879,17 @@ def test_summary_folds_the_traced_quotes(world):
     assert "<details><summary>" in traced
 
 
+def test_summary_quote_keeps_its_own_look(world):
+    # The summary's traced examples use <span class="quote">, styled as
+    # before EV-19 (italic, inline); the claims page's block layout is
+    # scoped to its <blockquote>, so the summary's look never changes.
+    span_rule = ep._CSS[ep._CSS.index("span.quote{"):]
+    assert "font-style:italic" in span_rule[:span_rule.index("}")]
+    block_rule = ep._CSS[ep._CSS.index("blockquote.quote{"):]
+    assert "white-space:pre-wrap" in block_rule[:block_rule.index("}")]
+    assert '<span class="quote">' in ep.render_summary(_run(), k=2)
+
+
 def test_summary_leaves_the_candidates_to_the_rereview_page(world):
     page = ep.render_summary(_run())
     assert "Intro page of the annual report." not in page   # a candidate passage
@@ -963,13 +974,33 @@ def test_claims_page_headings_match_the_metrics_rows(world):
 
 
 def test_claims_page_refuses_a_run_missing_its_metrics_row(world):
-    # A run scored under a smaller _RETRIEVE_DEPTH than today's holds no
-    # metrics rows for the deeper k values; the heading would have nothing to
-    # read, so the page refuses by name instead of crashing mid-render.
+    # A damaged or hand-filtered metrics.parquet leaves a heading with
+    # nothing to read; the page refuses by name instead of crashing
+    # mid-render. (A whole-run depth mismatch is refused earlier, by
+    # _check_view.)
     run = _run()
     run.metrics = run.metrics[run.metrics["k"] != 2]
     with pytest.raises(ep.EvalInputError, match="no metrics row"):
         ep.render_claims(run, k=2)
+
+
+def test_metrics_row_refusal_names_the_section(world):
+    run = _run()
+    run.metrics = run.metrics[~((run.metrics["scope"] == "section") & (run.metrics["section"] == BP))]
+    with pytest.raises(ep.EvalInputError, match=f"no metrics row for section {MEMO} {BP!r}"):
+        ep.render_claims(run, k=2)
+
+
+@pytest.mark.parametrize("render", ["render_summary", "render_claims"])
+def test_report_refuses_a_run_scored_at_another_depth(world, render):
+    # Every rank label on the pages speaks today's _RETRIEVE_DEPTH (">20",
+    # "not within 20", "found only deeper (by k=20)"); a run scored to
+    # another depth would wear them wrongly even where its metrics rows
+    # cover k, so the view check refuses it outright.
+    run = _run()
+    run.meta["depth"] = 10
+    with pytest.raises(ep.EvalInputError, match="depth 10"):
+        getattr(ep, render)(run, k=2)
 
 
 def test_claims_page_toc_and_jump_links_resolve(world):
@@ -978,6 +1009,23 @@ def test_claims_page_toc_and_jump_links_resolve(world):
     assert set(hrefs) <= set(re.findall(r'id="([^"]+)"', page))
     assert f"memo-{MEMO}" in hrefs                              # every memo heading is linked
     assert {f"s-{MEMO}-1", f"s-{MEMO}-2"} <= set(hrefs)         # and every section heading
+
+
+def test_nav_stays_on_one_line_so_anchors_clear_it(world):
+    # h2/h3/.claim reserve 56px (scroll-margin-top) for the sticky nav; the
+    # Jump-to links can overflow the column, and a wrapped nav is taller
+    # than that reserve — so the nav scrolls sideways instead of wrapping.
+    rule = ep._CSS[ep._CSS.index(".nav{"):]
+    rule = rule[:rule.index("}")]
+    for needed in ("white-space:nowrap", "overflow-x:auto"):
+        assert needed in rule
+
+
+def test_claim_numbers_link_to_themselves(world):
+    # The stable per-claim ids exist so a person can hand someone a link to
+    # one claim; the number is that link, and :target highlights the arrival.
+    assert '<div class="n"><a href="#c1">1</a></div>' in ep.render_claims(_run(), k=2)
+    assert '<div class="n"><a href="#r1">1</a></div>' in ep.render_rereview(_run())
 
 
 def test_claims_page_ranks_each_piece_of_evidence_on_its_own(world):
@@ -1002,6 +1050,18 @@ def test_rereview_folded_line_shows_score_id_and_preview(world):
     page = ep.render_rereview(_run())
     assert ('<summary><span class="score">0.800</span><code>d.pdf_0</code>'
             '<span class="preview">Intro page of the annual report.</span></summary>') in page
+
+
+def test_rereview_folded_line_truncates_instead_of_wrapping(world):
+    # A long chunk id must not push the preview onto a second line: the
+    # summary line itself keeps to one line and clips with an ellipsis. The
+    # disclosure triangle survives because summary keeps display:list-item
+    # (a flex summary would drop it in most browsers).
+    rule = ep._CSS[ep._CSS.index("details summary{"):]
+    rule = rule[:rule.index("}")]
+    for needed in ("white-space:nowrap", "overflow:hidden", "text-overflow:ellipsis"):
+        assert needed in rule
+    assert "max-width:55%" not in ep._CSS
 
 
 def test_rereview_preview_is_collapsed_cut_then_escaped(world):

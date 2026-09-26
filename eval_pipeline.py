@@ -1157,7 +1157,9 @@ h3{font-size:15px;margin:20px 0 6px;scroll-margin-top:56px}
 .cnt{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px}
 .sub{color:var(--muted);margin:0 0 12px}.frame{background:var(--other-bg);border-left:4px solid var(--accent);padding:8px 12px}
 .note{background:var(--deep-bg);border-left:4px solid var(--keyword);padding:8px 12px}
-.nav{position:sticky;top:0;z-index:1;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 0;margin:0 0 12px}
+/* one line always (scrolls sideways if long): headings reserve 56px of scroll-margin, a wrapped nav would be taller */
+.nav{position:sticky;top:0;z-index:1;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 0;margin:0 0 12px;
+     white-space:nowrap;overflow-x:auto}
 .nav a,.nav b{margin-right:16px}.nav .cnt{margin-left:0}
 .toc{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 16px;margin:12px 0 24px;
      display:flex;flex-wrap:wrap;gap:4px 32px}
@@ -1175,6 +1177,7 @@ th{background:var(--head)}.bar{background:var(--line);height:10px;width:160px;di
      border-radius:8px;padding:12px 14px 10px 10px;margin:0 0 10px;scroll-margin-top:56px}
 .claim:target{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .n{color:var(--muted);font-size:13px;padding-top:3px}
+.n a{color:inherit;text-decoration:none}.n a:hover{text-decoration:underline}
 .text{margin:0 0 6px;font-size:15px}
 .meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 6px;font-size:13px;color:var(--muted)}
 .tag{border:1px solid var(--line2);border-radius:4px;padding:0 6px;font-size:12px;color:var(--muted)}
@@ -1186,11 +1189,17 @@ th{background:var(--head)}.bar{background:var(--line);height:10px;width:160px;di
 .rank{font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;border:1px solid currentColor;border-radius:999px;padding:0 8px}
 .rank.dense{color:var(--dense)}.rank.keyword{color:var(--keyword)}.rank.both{color:var(--both)}
 .rank.nf{color:var(--muted);border-style:dashed}.rank.cur{box-shadow:0 0 0 2px var(--line2)}
-details summary{cursor:pointer;color:var(--muted);font-size:13px;padding:2px 0}
+/* one line, tail clipped: keeps a long chunk id from pushing the preview onto a second line; display stays
+   list-item so the disclosure triangle survives (a flex summary would drop it) */
+details summary{cursor:pointer;color:var(--muted);font-size:13px;padding:2px 0;white-space:nowrap;overflow:hidden;
+     text-overflow:ellipsis}
 details summary:hover{color:var(--ink)}
 .piece{border-top:1px dashed var(--line);padding:8px 0 4px 0}
 .piece .meta{margin-bottom:2px}.piece .meta b{color:var(--ink)}
-.quote{display:block;margin:4px 0 6px 12px;padding:0 0 0 10px;border-left:3px solid var(--line2);white-space:pre-wrap;
+/* the summary's traced examples (span, pre-EV-19 look) vs the claims page's quotes (blockquote): same class, split
+   by element so the claims-page block layout cannot restyle the summary */
+span.quote{color:#374151;font-style:italic;margin:4px 0}
+blockquote.quote{margin:4px 0 6px 12px;padding:0 0 0 10px;border-left:3px solid var(--line2);white-space:pre-wrap;
      font-variant-numeric:tabular-nums;font-size:13px;line-height:1.45}
 .quote code,summary code{font:12px ui-monospace,Menlo,Consolas,monospace;color:var(--muted)}
 /* a re-review passage: line breaks kept, capped height, scroll inside */
@@ -1199,8 +1208,7 @@ details summary:hover{color:var(--ink)}
      border:1px solid var(--line);border-radius:6px}
 .score{font:600 12px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--ink);background:var(--head);border-radius:4px;
      padding:0 6px;margin-right:6px}
-.preview{display:inline-block;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;
-     margin-left:8px}
+.preview{margin-left:8px}
 details[open]>summary .preview{display:none}
 @media (max-width:640px){.preview{display:none}.claim{grid-template-columns:2em 1fr;padding:10px}}
 """
@@ -1243,12 +1251,22 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}{'' if n == 1 else 's'}"
 
 
-def _check_view(method: str, k: int) -> None:
-    """Refuses a method or k a run does not hold (ValueError)."""
+def _check_view(run: Run, method: str, k: int) -> None:
+    """Refuses a method or k a run does not hold (ValueError), and a run
+    scored at another retrieval depth than today's (EvalInputError): every
+    rank label on the pages speaks _RETRIEVE_DEPTH (">20", "not within 20",
+    the miss categories), so an other-depth run would be captioned wrongly
+    even where its metrics rows cover k. A baseline is not checked — deeper
+    retrieval never changes the top k, so its rows at a shared k compare."""
     if method not in _RETRIEVAL_METHODS:
         raise ValueError(f"method {method!r}: use one of {', '.join(_RETRIEVAL_METHODS)}")
     if not 1 <= k <= _RETRIEVE_DEPTH:
         raise ValueError(f"k={k}: use 1..{_RETRIEVE_DEPTH}")
+    depth = run.meta.get("depth")
+    if depth != _RETRIEVE_DEPTH:
+        raise EvalInputError([f"{run.run_id}: scored at retrieval depth {depth}, but _RETRIEVE_DEPTH is "
+                              f"{_RETRIEVE_DEPTH} — the pages' rank labels would misstate it; to report on "
+                              f"the current retrieval results, run python eval_pipeline.py score"])
 
 
 def _page_names(method: str, k: int, baseline_id: str | None) -> dict[str, str]:
@@ -1451,7 +1469,7 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
     changes against a baseline run (check_comparable must pass). `pages`
     names the three files to link between (_page_names); None leaves the
     link line out. Returns the HTML."""
-    _check_view(method, k)
+    _check_view(run, method, k)
     if baseline is not None:
         check_comparable(run, baseline)
 
@@ -1631,7 +1649,7 @@ def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: st
         n_quotes += len(quotes)
         folded.append(f'<div class="piece"><p class="meta"><b>Piece {i}</b>{_piece_badge(piece_rank[method], k)}'
                       f'{_rank_chips(piece_rank, method)}</p>{"".join(quotes)}</div>')
-    return (f'<article class="claim" id="c{number}"><div class="n">{number}</div><div>'
+    return (f'<article class="claim" id="c{number}"><div class="n"><a href="#c{number}">{number}</a></div><div>'
             f'<p class="text">{_e(claim.claim_text)} <span class="tag">{_e(claim.bucket.lower())}</span></p>'
             f'<p class="meta"><span class="badge {cls}">{_e(status)}</span>{_rank_chips(best, method)}'
             f'<span>{hit} of {_count(len(pieces), "piece")} retrieved — {_pct(hit, len(pieces))}</span></p>'
@@ -1652,8 +1670,10 @@ def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: di
     (_heading_counts), a table of contents links every memo and section
     heading, and the page explains once, in plain words, what recall counts
     (decision 19's duplicated-document residual). No baseline changes here;
-    the summary carries them. `pages` as in render_summary. Returns the HTML."""
-    _check_view(method, k)
+    the summary carries them. `pages` names the files to link between, as in
+    render_summary — but None keeps this page's bold label and Jump-to links
+    (_nav), leaving out only the links to the other pages. Returns the HTML."""
+    _check_view(run, method, k)
     pieces = _evidence_pieces(run)
     ranks = run.claim_hits.set_index(["claim_id", "group", "method"])["best_rank"].to_dict()
     misses = miss_taxonomy(run, method, k)
@@ -1662,10 +1682,11 @@ def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: di
 
     def counts(scope: str, memo_id: str, section: str = "ALL") -> str:
         row = _metric_row(run.metrics, scope, memo_id, section, method, k)
-        if row is None:   # a run scored under a smaller _RETRIEVE_DEPTH holds no row for this k
-            raise EvalInputError([f"{run.run_id}: no metrics row for {scope} {memo_id} at method={method}, "
-                                  f"k={k} — the run was scored under other settings; to report on the current "
-                                  f"retrieval results, run python eval_pipeline.py score"])
+        if row is None:   # metrics.parquet lost rows — damaged, or filtered by hand
+            where = f"{scope} {memo_id}" + (f" {section!r}" if scope == "section" else "")
+            raise EvalInputError([f"{run.run_id}: no metrics row for {where} at method={method}, "
+                                  f"k={k} — the run's metrics table is incomplete; score the run again: "
+                                  f"python eval_pipeline.py score"])
         return _heading_counts(row, k)
 
     legend = ", ".join(f"{m} = {_METHOD_LABEL[m]}" for m in _RETRIEVAL_METHODS)
@@ -1750,7 +1771,7 @@ def render_rereview(run: Run) -> str:
                 f'<details><summary><span class="score">{p.score:.3f}</span><code>{_e(p.chunk_id)}</code>'
                 f'<span class="preview">{_preview(p.chunk_text)}</span></summary>'
                 f'<pre class="passage">{_e(p.chunk_text)}</pre></details>' for p in passages)
-            bodies.append(f'<article class="claim" id="r{number}"><div class="n">{number}</div><div>'
+            bodies.append(f'<article class="claim" id="r{number}"><div class="n"><a href="#r{number}">{number}</a></div><div>'
                           f'<p class="text">{_e(passages[0].claim_text)}</p>'
                           f'<p class="meta"><span class="tag">{_e(passages[0].section)}</span>'
                           f'<span>{_count(len(passages), "passage")} · strongest {passages[0].score:.3f}</span></p>'
