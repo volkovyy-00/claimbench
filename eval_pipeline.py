@@ -727,13 +727,37 @@ def _sha256(data: bytes) -> str:
 def _round_half_away(x: float) -> int:
     """x rounded to a whole number, halves away from zero (12.5 -> 13,
     -2.5 -> -3). Python's round() sends halves to the even neighbour, so 1/8
-    would show as 12% but 3/8 as 38%."""
+    would show as 12% but 3/8 as 38%. x is first snapped to 12 decimals,
+    so a value within 5e-13 of a half counts as that half: a stored fraction
+    scaled by 100 carries float error near 1e-14 (100 * 0.145 is
+    14.499999999999998) and would otherwise round the wrong way. A count
+    ratio (_pct) never sits that close to a half without being one. A mean —
+    MRR, a mean of 1/rank, or recall averaged per claim, a mean of per-claim
+    fractions — can, once a run's depth or pieces per claim grow large (its
+    smallest gap to a half is about 1 / (2 · claims · lcm of the ranks or
+    piece counts)): such a figure is shown as the half, rounded away from
+    zero, a difference no reader could see at two places."""
+    x = round(x, 12)
     return int(np.sign(x) * np.floor(abs(x) + 0.5))
 
 
 def _pct(num, den) -> str:
     """A percentage with its counts, as every number on the report is shown."""
     return f"{_round_half_away(100 * num / den)}% ({int(num)}/{int(den)})" if den else "n/a (0/0)"
+
+
+def _mean_pct(x) -> str:
+    """A mean of per-claim fractions (recall averaged per claim) as a whole
+    percent, rounded as _pct rounds, or 'n/a' for NaN. No (x/y): a mean of
+    fractions has none, so callers name what it averages."""
+    return "n/a" if pd.isna(x) else f"{_round_half_away(100 * x)}%"
+
+
+def _score(x) -> str:
+    """A score such as MRR to two places, halves away from zero like every
+    percentage here (0.125 -> 0.13, where format() gives 0.12), or 'n/a'
+    for NaN — a scope with no verifiable claims."""
+    return "n/a" if pd.isna(x) else f"{_round_half_away(100 * x) / 100:.2f}"
 
 
 def _metric_row(metrics: pd.DataFrame, scope: str, memo_id: str, section: str, method: str, k: int):
@@ -1125,23 +1149,27 @@ def check_comparable(run: Run, baseline: Run) -> None:
 # verifiable claim, and a re-review page listing every candidate (the same
 # for every method and k, so one file per run). Written from run records
 # only: no external asset, no script, opens with no network — a folded quote
-# is plain HTML <details>. Every percentage carries its counts — except a
-# heading's recall, a mean of per-claim fractions with no single (x/y),
-# which names what it averages instead (_heading_counts). The
+# is plain HTML <details>. Every percentage carries its counts — except
+# recall averaged per claim, a mean of per-claim fractions with no single
+# (x/y), which names what it averages instead (a heading's, _heading_counts;
+# the summary's "avg over N claims", _metrics_block). The
 # unverifiable count never appears without the re-review sentence beside it
-# (spec: "Unverifiable, and its honesty check"). Precision and MRR stay in
-# metrics.parquet; no page shows them. The claims page shows recall averaged
-# per claim (EV-19) — read from the stored metrics rows, never recomputed,
-# and explained on the page in plain words; the summary shows no recall.
+# (spec: "Unverifiable, and its honesty check"). The claims page shows recall
+# averaged per claim (EV-19); the summary shows it per search method with
+# pooled pieces, MRR and each memo's citation precision (EV-20). All are
+# read from the stored metrics rows, never recomputed — pooled pieces'
+# counts are the one measure that is not (_pooled_pieces) — and each is
+# explained on its page in plain words. Precision and MRR appear on the
+# summary only.
 
 # %%
 _METHOD_LABEL = {"dense": "meaning search (dense)", "keyword": "keyword search (BM25)",
                  "both": "both combined (RRF)"}
 _METHOD_COLOR = {"dense": "#2563eb", "keyword": "#d97706", "both": "#059669"}
 # The three miss reasons' stable keys — each is also its badge class on
-# the claims page (.badge.other/.deep/.none; "retrieved at k" is .hit,
-# and the piece-level grey .miss is separate on purpose, _piece_badge
-# says why). miss_taxonomy assigns the key; every caption is built from
+# the claims page and the summary (.badge.other/.deep/.none; "retrieved at
+# k" is .hit — both rendered by _status_badge; the piece-level grey .miss is
+# separate on purpose, _piece_badge says why). miss_taxonomy assigns the key; every caption is built from
 # it, so rewording a caption can never break a lookup.
 _MISS_KEYS = ("other", "deep", "none")
 
@@ -1159,8 +1187,11 @@ _CSS = """
    summary shares the tokens, sticky nav and folded-summary styling by
    design (EV-19: shared styling, content and order unchanged); only
    span.quote pins its traced examples to the pre-EV-19 inline look. The
-   claim, piece, badge, rank, toc and passage classes serve only the
-   claims and re-review pages. */
+   status badges also mark the summary's traced examples and miss reasons
+   (EV-20); the claim, piece, rank, toc and passage classes serve only the
+   claims and re-review pages. No class or comment here may name the
+   summary's finer measures: this sheet is part of every page, and the
+   claims and re-review pages must never mention them. */
 :root{--bg:#fafaf9;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--line2:#d1d5db;--head:#f3f4f6;
      --accent:#6366f1;--dense:#2563eb;--keyword:#d97706;--both:#059669;
      --hit:#166534;--hit-bg:#dcfce7;--other:#1e40af;--other-bg:#dbeafe;--deep:#92400e;--deep-bg:#fef3c7;
@@ -1186,6 +1217,9 @@ h3{font-size:15px;margin:20px 0 6px;scroll-margin-top:56px}
 .tile .l{color:var(--muted);font-size:13px}.delta{font-size:13px;color:var(--both)}.delta.neg{color:var(--none)}
 table{border-collapse:collapse;width:100%;font-size:13px;background:var(--card)}
 th,td{border:1px solid var(--line2);padding:4px 8px;text-align:left;vertical-align:top}
+table.narrow{width:auto;min-width:min(420px,100%);margin-top:12px}
+/* muted explanations under a table — not .note, the amber warning box */
+.explain{margin:8px 0 0;font-size:13px;color:var(--muted)}.explain p{margin:2px 0}.explain b{color:var(--ink)}
 th{background:var(--head)}.bar{background:var(--line);height:10px;width:160px;display:inline-block;vertical-align:middle}
 .bar span{display:block;height:10px;background:var(--dense)}
 .scroll{overflow-x:auto}
@@ -1364,13 +1398,54 @@ def _page(title: str, body: list[str]) -> str:
             f"<title>{_e(title)}</title><style>{_CSS}</style></head><body>" + "".join(body) + "</body></html>")
 
 
-def _delta(current, base) -> str:
-    """'+33 pts vs <baseline>' for two coverage fractions, or '' without a baseline."""
-    if base is None or current is None or pd.isna(base.coverage) or pd.isna(current.coverage):
+def _required_row(run: Run, scope: str, memo_id: str, section: str, method: str, k: int,
+                  *, baseline: bool = False):
+    """The metrics row a page must read, or a refusal naming it. A run —
+    or baseline — whose metrics.parquet lost rows (damaged, or filtered by
+    hand) would otherwise render as zeros or crash mid-page. A section row
+    may legitimately be absent (a section holding only unverifiable claims
+    that was never searched), so the summary reads section rows with
+    _metric_row; the claims page lists only sections holding verifiable
+    claims, whose rows every run writes, so it requires them here.
+    `baseline` changes only the advice: `score` rebuilds a run from today's
+    phrases and results, so it can repair the run being reported, never an
+    earlier run serving as its baseline."""
+    row = _metric_row(run.metrics, scope, memo_id, section, method, k)
+    if row is None:
+        where = ("the all-memo total" if scope == "all"
+                 else f"{scope} {memo_id}" + (f" {section!r}" if scope == "section" else ""))
+        advice = ("this baseline run's metrics table is incomplete; choose another baseline run, or score it "
+                  "again only after restoring the phrases and results it was scored from" if baseline else
+                  "the run's metrics table is incomplete; score the run again: python eval_pipeline.py score")
+        raise EvalInputError([f"{run.run_id}: no metrics row for {where} at method={method}, k={k} — {advice}"])
+    return row
+
+
+def _baseline_row(baseline: Run | None, scope: str, memo_id: str, section: str, method: str, k: int):
+    """The baseline's row for the same view, None without a baseline; a
+    missing row is refused with the advice a baseline needs (_required_row)."""
+    return None if baseline is None else _required_row(baseline, scope, memo_id, section, method, k, baseline=True)
+
+
+def _delta(current, base, field: str = "coverage", *, score: bool = False) -> str:
+    """A metrics row's change in `field` against the baseline's: '+33 pts
+    vs baseline' for a fraction (coverage, recall_macro), or '+0.33 vs
+    baseline' when the caller passes score=True (MRR). The change is the gap between the two figures as the page shows
+    them — each x 100, rounded halves away from zero, as _pct and _score
+    round — so it always adds up with the numbers beside it (67% against
+    33% reads +34, not the unrounded +33). Both are whole numbers, so equal
+    figures read '+0.00', never '-0.00', and only a fall wears the falling
+    colour. '' without a baseline row, or when either value is NaN (a scope
+    with no verifiable claims)."""
+    if base is None or current is None:
         return ""
-    points = _round_half_away(100 * (current.coverage - base.coverage))
-    cls = "delta neg" if points < 0 else "delta"
-    return f'<div class="{cls}">{points:+d} pts vs baseline</div>'
+    now, then = getattr(current, field), getattr(base, field)
+    if pd.isna(now) or pd.isna(then):
+        return ""
+    n = _round_half_away(100 * now) - _round_half_away(100 * then)
+    text = f"{n / 100:+.2f}" if score else f"{n:+d} pts"
+    cls = "delta neg" if n < 0 else "delta"
+    return f'<div class="{cls}">{text} vs baseline</div>'
 
 
 def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
@@ -1386,11 +1461,12 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
     def y(v):
         return top + (1 - v) * (height - top - bottom)
 
-    def points(metrics, m):
+    def points(r: Run, m: str, *, is_baseline: bool = False):
+        # every k is read, not just the page's: a lost row would otherwise join its neighbours silently
         out = []
         for kk in range(1, depth + 1):
-            row = _metric_row(metrics, "all", "ALL", "ALL", m, kk)
-            if row is not None and not pd.isna(row.coverage):
+            row = _required_row(r, "all", "ALL", "ALL", m, kk, baseline=is_baseline)
+            if not pd.isna(row.coverage):   # NaN: no verifiable claims, nothing to draw
                 out.append(f"{x(kk):.1f},{y(row.coverage):.1f}")
         return " ".join(out)
 
@@ -1409,11 +1485,11 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
                  f'stroke="#9ca3af" stroke-dasharray="2 3"/>')
     if baseline is not None:
         parts.append(f'<polyline fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6 4" '
-                     f'points="{points(baseline.metrics, method)}"/>')
+                     f'points="{points(baseline, method, is_baseline=True)}"/>')
     for m in _RETRIEVAL_METHODS:
         weight = 3 if m == method else 1.5
         parts.append(f'<polyline fill="none" stroke="{_METHOD_COLOR[m]}" stroke-width="{weight}" '
-                     f'points="{points(run.metrics, m)}"/>')
+                     f'points="{points(run, m)}"/>')
     for i, m in enumerate(_RETRIEVAL_METHODS):
         parts.append(f'<text x="{left + 8}" y="{top + 14 + 14 * i}" font-size="12" fill="{_METHOD_COLOR[m]}">'
                      f'{_e(_METHOD_LABEL[m])}</text>')
@@ -1424,16 +1500,31 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
     return "".join(parts)
 
 
+def _phrase_counts(run: Run) -> dict:
+    """memo -> section -> number of search phrases, as the run recorded
+    them; {} for a run that recorded none (a baseline needs only meta.json
+    and metrics, so its counts may be missing)."""
+    return run.meta.get("phrase_counts", {})
+
+
+def _phrase_count_changes(run: Run, baseline: Run) -> list[tuple[str, str]]:
+    """(memo, section) pairs, sorted, that the two runs searched with a
+    different number of phrases — over both runs' sections, since one only
+    the baseline searched lost its passages too. A count one run did not
+    record differs. The one comparison behind _phrase_count_note and the
+    MRR note's caveat."""
+    counts, base_counts = _phrase_counts(run), _phrase_counts(baseline)
+    keys = sorted({(m, s) for c in (counts, base_counts) for m, sections in c.items() for s in sections})
+    return [(m, s) for m, s in keys if counts.get(m, {}).get(s) != base_counts.get(m, {}).get(s)]
+
+
 def _phrase_count_note(run: Run, baseline: Run | None) -> str:
     """A warning when the baseline searched some section with a different
     number of phrases: more phrases hand the model more passages, so part of
     any change there is simply more text, not better questions."""
     if baseline is None:
         return ""
-    counts, base_counts = run.meta.get("phrase_counts", {}), baseline.meta.get("phrase_counts", {})
-    # Both runs' sections: one only the baseline searched lost its passages too.
-    keys = sorted({(m, s) for c in (counts, base_counts) for m, sections in c.items() for s in sections})
-    changed = [f"{m} / {s}" for m, s in keys if counts.get(m, {}).get(s) != base_counts.get(m, {}).get(s)]
+    changed = [f"{m} / {s}" for m, s in _phrase_count_changes(run, baseline)]
     if not changed:
         return ""
     more = "…" if len(changed) > 5 else ""
@@ -1449,16 +1540,22 @@ def _bar(row) -> str:
     return f'<span class="bar"><span style="width:{pct:.0f}%"></span></span> {_pct(row.covered, row.claims)}'
 
 
-def _traced_examples(run: Run, method: str, k: int) -> str:
+def _traced_examples(run: Run, method: str, k: int, misses: pd.DataFrame) -> str:
     """One found and one missed verifiable claim per memo at (method, k),
     each with the evidence a human confirmed, folded. A found claim quotes
     the evidence row that was actually hit (best_golden_chunk_id) — a claim
-    can have many — and says where the hit was."""
+    can have many — and says where the hit was. Each outcome wears the
+    claims page's status badge (_status_badge): green when retrieved, else
+    its miss reason's colour and caption (`misses`: the page's
+    miss_taxonomy, shared with its miss-reason table), so a claim another method found
+    is never shown as found by none."""
     text_by_claim = dict(zip(run.claims["claim_id"], run.claims["claim_text"]))
     hits = run.claim_hits[run.claim_hits["method"] == method]
     best = hits.sort_values(["best_rank"], kind="stable").groupby("claim_id").first()
     first_quote = run.evidence.groupby("claim_id").first()
     quote_of = run.evidence.set_index(["claim_id", "chunk_id"])["evidence_span"]
+    reason_of = dict(zip(misses["claim_id"], misses["key"]))
+    depth = run.meta["depth"]
     table = ["<table><tr><th>memo</th><th>claim</th><th>evidence a human confirmed</th><th>retrieved?</th></tr>"]
     for memo_id in run.meta["memos"]:
         verifiable = run.claims[(run.claims["memo_id"] == memo_id) & (run.claims["bucket"] != "UNVERIFIABLE")]
@@ -1476,11 +1573,11 @@ def _traced_examples(run: Run, method: str, k: int) -> str:
                     where = f"the neighbouring passage {_e(b.best_chunk_id)}, which contains this quote"
                 else:   # _is_hit's identical-text case: another place holding the same text
                     where = f"passage {_e(b.best_chunk_id)}, whose text is identical to this quote"
-                outcome = f"yes — rank {int(b.best_rank)}: {where}"
+                outcome = f"{_status_badge(None, k, depth)} — rank {int(b.best_rank)}: {where}"
             else:
                 golden = first_quote.loc[claim_id, "chunk_id"]
                 quote = first_quote.loc[claim_id, "evidence_span"]
-                outcome = f"no — not in the top {k} for any search phrase"
+                outcome = _status_badge(reason_of[claim_id], k, depth)
             table.append(f"<tr><td>{_e(memo_id)}</td><td>{_e(text_by_claim[claim_id])}</td>"
                          f'<td><details><summary>show quote</summary><span class="quote">{_e(quote)} '
                          f"({_e(golden)})</span></details></td><td>{outcome}</td></tr>")
@@ -1488,28 +1585,109 @@ def _traced_examples(run: Run, method: str, k: int) -> str:
     return f'<div class="scroll">{"".join(table)}</div>'
 
 
+def _pooled_pieces(run: Run, method: str, k: int) -> tuple[int, int]:
+    """(pieces of evidence retrieved within k, pieces there are), pooled
+    over every verifiable claim. The one summary measure not read from a
+    stored metrics row: metrics.parquet keeps only the fraction
+    (recall_micro), and every percentage shows its counts.
+    claim_hits holds one row per claim x method x piece, hit or not, and a
+    piece counts when its best rank is <= k (a NaN rank never is) — the
+    comparison _claim_metrics_by_k makes for recall_micro, so the fraction
+    equals the stored one."""
+    ranks = run.claim_hits.loc[run.claim_hits["method"] == method, "best_rank"]
+    return int((ranks <= k).sum()), len(ranks)
+
+
+def _metrics_block(run: Run, method: str, k: int, baseline: Run | None) -> str:
+    """The summary's finer measures at k (EV-20). Per search method: its
+    claim coverage (repeated from the chart, so recall reads beside it),
+    recall averaged per claim, pieces of evidence retrieved pooled with
+    counts (_pooled_pieces) and MRR — recall and MRR with their change
+    against the baseline. Then citation precision per memo for the chosen
+    method.
+    Read from the all-memo and memo rows, which _required_row refuses by
+    name when missing — in the baseline too. Each measure comes with a
+    plain-words note that keeps it from being misread; a run with no
+    verifiable claims shows 'n/a' and leaves out the recall and MRR notes,
+    which would have nothing to describe."""
+    out = [f"<h2>Finer measures by search method (k = {k})</h2>",
+           '<div class="scroll"><table><tr><th>search method</th><th>claim coverage</th>'
+           "<th>evidence recall, averaged per claim</th><th>pieces of evidence retrieved, pooled</th>"
+           "<th>MRR</th></tr>"]
+    for m in _RETRIEVAL_METHODS:
+        row = _required_row(run, "all", "ALL", "ALL", m, k)
+        base = _baseline_row(baseline, "all", "ALL", "ALL", m, k)
+        name = f"<th>{_e(_METHOD_LABEL[m])}</th>" if m == method else f"<td>{_e(_METHOD_LABEL[m])}</td>"
+        recall = _mean_pct(row.recall_macro) + ("" if pd.isna(row.recall_macro)
+                                                else f" avg over {_count(int(row.claims), 'claim')}")
+        out.append(f"<tr>{name}<td>{_pct(row.covered, row.claims)}</td>"
+                   f"<td>{recall}{_delta(row, base, 'recall_macro')}</td>"
+                   f"<td>{_pct(*_pooled_pieces(run, m, k))}</td>"
+                   f"<td>{_score(row.mrr)}{_delta(row, base, 'mrr', score=True)}</td></tr>")
+    out.append("</table></div>")
+    verifiable = run.claims[run.claims["bucket"] != "UNVERIFIABLE"]
+    if not verifiable.empty:   # the MRR note's ranges are taken over these claims' sections
+        sections = set(zip(verifiable["memo_id"], verifiable["section"]))
+
+        def phrases(r: Run) -> str | None:
+            recorded = _phrase_counts(r)
+            counts = sorted({n for memo_id, section in sections
+                             if (n := recorded.get(memo_id, {}).get(section)) is not None})
+            if not counts:
+                return None
+            return _count(counts[0], "phrase") if len(counts) == 1 else f"{counts[0]}–{counts[-1]} phrases"
+
+        # MRR rises with the phrase count alone, so a change against a baseline searched otherwise says so
+        caveat = ""
+        if baseline is not None and sections & set(_phrase_count_changes(run, baseline)):
+            searched = phrases(baseline)
+            caveat = ((f"; the baseline's sections were searched with {searched} each" if searched else
+                       "; the baseline searched these sections with a different number of phrases")
+                      + ", so part of the MRR change comes from the number of phrases, not better phrases")
+        out.append('<div class="explain">'
+                   "<p><b>Evidence recall</b> counts every piece of evidence a claim lists; alternative sources "
+                   "for the same fact pull it down, so read it beside the same method's claim coverage, in the "
+                   "column before it.</p>"
+                   "<p><b>MRR</b> (mean reciprocal rank) takes each claim's best rank over all of its section's "
+                   f"search phrases (sections here are searched with {phrases(run) or 'an unrecorded number of phrases'} "
+                   "each), so it is optimistic "
+                   f"and not comparable between sections{caveat}.</p></div>")
+    out.append(f'<table class="narrow"><tr><th>memo</th><th>citation precision, {_e(_METHOD_LABEL[method])}</th></tr>')
+    for memo_id in run.meta["memos"]:
+        row = _required_row(run, "memo", memo_id, "ALL", method, k)
+        out.append(f"<tr><td>{_e(memo_id)}</td><td>{_pct(row.retrieved_golden, row.retrieved)}</td></tr>")
+    out.append(_TABLE_CLOSE)
+    out.append('<div class="explain"><p><b>Citation precision</b> counts only the retrieved passages someone cited '
+               "as evidence, so it is a floor: an uncited passage may still have been useful.</p></div>")
+    return "".join(out)
+
+
 def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline: Run | None = None,
                    pages: dict[str, str] | None = None) -> str:
     """The summary page for one run at (method, k), for a non-technical
     audience: traced examples first, then the headline tiles, the coverage
-    chart, the memo/section table and the miss reasons — optionally with
-    changes against a baseline run (check_comparable must pass). `pages`
-    names the three files to link between (_page_names); None leaves the
-    link line out. Returns the HTML."""
+    chart, the finer measures (_metrics_block: recall, pooled pieces, MRR,
+    citation precision), the memo/section table and the miss reasons —
+    optionally with changes against a baseline run (check_comparable must
+    pass). The all-memo and memo rows it reads are refused by name when
+    missing, in the run or the baseline (_required_row); only a section row
+    may be absent. `pages` names the three files to link between
+    (_page_names); None leaves the link line out. Returns the HTML."""
     _check_view(run, method, k)
     if baseline is not None:
         check_comparable(run, baseline)
 
-    def row(r, scope="all", memo_id="ALL", section="ALL"):
-        return _metric_row(r.metrics, scope, memo_id, section, method, k)
+    def section_row(r: Run, memo_id: str, section: str):
+        # None is legitimate here: a section holding only unverifiable claims, never searched, has no row
+        return _metric_row(r.metrics, "section", memo_id, section, method, k)
 
-    head = row(run)
-    base = row(baseline) if baseline is not None else None
-    covered, claims = (int(head.covered), int(head.claims)) if head is not None else (0, 0)
-    ext = (int(head.covered_extractive), int(head.claims_extractive)) if head is not None else (0, 0)
-    syn = (int(head.covered_synthesized), int(head.claims_synthesized)) if head is not None else (0, 0)
-    syn_complete = int(head.complete_synthesized) if head is not None else 0
-    passages = int(head.passages) if head is not None else 0
+    head = _required_row(run, "all", "ALL", "ALL", method, k)
+    base = _baseline_row(baseline, "all", "ALL", "ALL", method, k)
+    covered, claims = int(head.covered), int(head.claims)
+    ext = (int(head.covered_extractive), int(head.claims_extractive))
+    syn = (int(head.covered_synthesized), int(head.claims_synthesized))
+    syn_complete = int(head.complete_synthesized)
+    passages = int(head.passages)
     # section rows at this (method, k) — every section searched, verifiable claims or not
     section_rows = run.metrics[(run.metrics["scope"] == "section") & (run.metrics["method"] == method)
                                & (run.metrics["k"] == k)]
@@ -1523,7 +1701,8 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
                'It shows what the instrument produces — it is not a verdict on any production system.</p>')
 
     out.append("<h2>Traced examples</h2>")
-    out.append(_traced_examples(run, method, k))
+    misses = miss_taxonomy(run, method, k)
+    out.append(_traced_examples(run, method, k, misses))
 
     out.append('<div class="tiles">')
     out.append(f'<div class="tile"><div class="l">claim coverage</div><div class="v">{_pct(covered, claims)}</div>'
@@ -1545,31 +1724,32 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
     out.append("<h2>Coverage as each search phrase returns more passages</h2>")
     out.append(_coverage_svg(run, method, k, baseline))
 
+    out.append(_metrics_block(run, method, k, baseline))
+
     out.append("<h2>By memo and section</h2>")
     table = ["<table><tr><th>memo</th><th>section</th><th>claim coverage</th><th>passages</th>"
              "<th>change</th></tr>"]
     for memo_id in run.meta["memos"]:
-        m = row(run, "memo", memo_id)
-        mb = row(baseline, "memo", memo_id) if baseline is not None else None
+        m = _required_row(run, "memo", memo_id, "ALL", method, k)
+        mb = _baseline_row(baseline, "memo", memo_id, "ALL", method, k)
         # every claims-file section, plus any section searched that the claims file lacks
         sections = sorted(set(run.claims.loc[run.claims["memo_id"] == memo_id, "section"])
                           | set(section_rows.loc[section_rows["memo_id"] == memo_id, "section"]))
         table.append(f"<tr><th>{_e(memo_id)}</th><th>all</th><td>{_bar(m)}</td>"
-                     f"<td>{int(m.passages) if m is not None else 0}</td><td>{_delta(m, mb)}</td></tr>")
+                     f"<td>{int(m.passages)}</td><td>{_delta(m, mb)}</td></tr>")
         for section in sections:
-            s = row(run, "section", memo_id, section)
-            sb = row(baseline, "section", memo_id, section) if baseline is not None else None
+            s = section_row(run, memo_id, section)
+            sb = section_row(baseline, memo_id, section) if baseline is not None else None
             table.append(f"<tr><td></td><td>{_e(section)}</td><td>{_bar(s)}</td>"
                          f"<td>{int(s.passages) if s is not None else 0}</td><td>{_delta(s, sb)}</td></tr>")
     table.append(_TABLE_CLOSE)
     out.append("".join(table))
 
     out.append(f"<h2>Why the missed claims were missed (k = {k})</h2>")
-    misses = miss_taxonomy(run, method, k)
     table = ["<table><tr><th>reason</th><th>extractive</th><th>synthesized</th></tr>"]
     for key in _MISS_KEYS:
         rows = misses[misses["key"] == key]
-        table.append(f"<tr><td>{_e(_miss_caption(key, run.meta['depth']))}</td>"
+        table.append(f'<tr><td>{_badge(key, _miss_caption(key, run.meta["depth"]))}</td>'
                      f"<td>{int((rows['bucket'] == 'EXTRACTIVE').sum())}</td>"
                      f"<td>{int((rows['bucket'] == 'SYNTHESIZED').sum())}</td></tr>")
     table.append(_TABLE_CLOSE)
@@ -1637,6 +1817,21 @@ def _within_k(rank, k: int) -> bool:
     return bool(pd.notna(rank) and rank <= k)
 
 
+def _badge(cls: str, text: str) -> str:
+    """One coloured label (.badge.<cls>) — the markup every status and
+    piece badge on the pages shares."""
+    return f'<span class="badge {cls}">{_e(text)}</span>'
+
+
+def _status_badge(reason: str | None, k: int, depth: int) -> str:
+    """A claim's status at k as one of the four coloured badges: reason
+    None is 'retrieved', otherwise the miss_taxonomy key — which is the
+    badge class — captioned by _miss_caption. Shared by the claims page and
+    the summary's traced examples, so a claim wears the same colour on both."""
+    status = f"retrieved at k = {k}" if reason is None else f"missed at k = {k} — {_miss_caption(reason, depth)}"
+    return _badge(reason or "hit", status)
+
+
 def _piece_badge(rank: float, k: int, depth: int) -> str:
     """The scored method's verdict on one piece of evidence: green
     'retrieved' within k, otherwise grey — 'rank N' when within the run's
@@ -1644,9 +1839,8 @@ def _piece_badge(rank: float, k: int, depth: int) -> str:
     the claim-level amber or red: those mean NO method found the claim, and
     a piece another method finds at this depth would wear the wrong meaning."""
     if _within_k(rank, k):
-        return '<span class="badge hit">retrieved</span>'
-    label = f"rank {int(rank)}" if pd.notna(rank) else f"not within {depth}"
-    return f'<span class="badge miss">{label}</span>'
+        return _badge("hit", "retrieved")
+    return _badge("miss", f"rank {int(rank)}" if pd.notna(rank) else f"not within {depth}")
 
 
 def _heading_counts(row, k: int) -> str:
@@ -1657,22 +1851,18 @@ def _heading_counts(row, k: int) -> str:
     of per-claim fractions has none, so it names what it averages, over the
     claim count that opens the line."""
     return (f"{_count(int(row.claims), 'claim')} · {_pct(row.covered, row.claims)} retrieved at k = {k} · "
-            f"recall {_round_half_away(100 * row.recall_macro)}%, the mean of each claim's piece recall")
+            f"recall {_mean_pct(row.recall_macro)}, the mean of each claim's piece recall")
 
 
 def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: str | None,
                  method: str, k: int, depth: int) -> str:
     """One claim on the claims page: its number, text and type, its status
-    badge (reason None means retrieved; otherwise the miss_taxonomy key,
-    which is the badge class, captioned by _miss_caption), one rank chip
-    per method, and its recall at k with
+    badge (_status_badge: reason None means retrieved; otherwise the
+    miss_taxonomy key), one rank chip per method, and its recall at k with
     counts, then — folded — each piece of evidence with its own badge and
     chips and its quotes (_quotes: a human-added row can hold several)."""
     piece_ranks = [{m: ranks[(claim.claim_id, g, m)] for m in _RETRIEVAL_METHODS} for g in range(len(pieces))]
     best = {m: min((r[m] for r in piece_ranks if pd.notna(r[m])), default=np.nan) for m in _RETRIEVAL_METHODS}
-    cls = "hit" if reason is None else reason
-    status = (f"retrieved at k = {k}" if reason is None
-              else f"missed at k = {k} — {_miss_caption(reason, depth)}")
     hit = sum(1 for r in piece_ranks if _within_k(r[method], k))
     folded, n_quotes = [], 0
     for i, (piece, piece_rank) in enumerate(zip(pieces, piece_ranks), start=1):
@@ -1683,7 +1873,7 @@ def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: st
                       f'{_rank_chips(piece_rank, method, depth)}</p>{"".join(quotes)}</div>')
     return (f'<article class="claim" id="c{number}"><div class="n"><a href="#c{number}">{number}</a></div><div>'
             f'<p class="text">{_e(claim.claim_text)} <span class="tag">{_e(claim.bucket.lower())}</span></p>'
-            f'<p class="meta"><span class="badge {cls}">{_e(status)}</span>{_rank_chips(best, method, depth)}'
+            f'<p class="meta">{_status_badge(reason, k, depth)}{_rank_chips(best, method, depth)}'
             f'<span>{hit} of {_count(len(pieces), "piece")} retrieved — {_pct(hit, len(pieces))}</span></p>'
             f'<details><summary>{_count(len(pieces), "piece")} of evidence, {_count(n_quotes, "quote")}</summary>'
             f'{"".join(folded)}</details></div></article>')
@@ -1714,13 +1904,7 @@ def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: di
     verifiable = run.claims[run.claims["bucket"] != "UNVERIFIABLE"]
 
     def counts(scope: str, memo_id: str, section: str = "ALL") -> str:
-        row = _metric_row(run.metrics, scope, memo_id, section, method, k)
-        if row is None:   # metrics.parquet lost rows — damaged, or filtered by hand
-            where = f"{scope} {memo_id}" + (f" {section!r}" if scope == "section" else "")
-            raise EvalInputError([f"{run.run_id}: no metrics row for {where} at method={method}, "
-                                  f"k={k} — the run's metrics table is incomplete; score the run again: "
-                                  f"python eval_pipeline.py score"])
-        return _heading_counts(row, k)
+        return _heading_counts(_required_row(run, scope, memo_id, section, method, k), k)
 
     legend = ", ".join(f"{m} = {_METHOD_LABEL[m]}" for m in _RETRIEVAL_METHODS)
     intro = (

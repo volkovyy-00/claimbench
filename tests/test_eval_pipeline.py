@@ -576,11 +576,15 @@ def test_missing_claim_queries_halt(world):
         ep.load_claim_queries("claim_queries.parquet", [gt])
 
 
+def _write_phrases(sections):
+    """retrieval/<MEMO>.yaml searching each section with its phrases."""
+    with open(os.path.join("retrieval", f"{MEMO}.yaml"), "w", encoding="utf-8") as f:
+        yaml.safe_dump({"memo_id": MEMO, "source_folder": "src", "sections": sections}, f, sort_keys=False)
+
+
 def _rephrase(bp_phrase):
     """The phrase lever done properly: new phrase file AND results retrieved with it."""
-    with open(os.path.join("retrieval", f"{MEMO}.yaml"), "w", encoding="utf-8") as f:
-        yaml.safe_dump({"memo_id": MEMO, "source_folder": "src",
-                        "sections": {BP: [bp_phrase], OWN: ["shareholders"]}}, f)
+    _write_phrases({BP: [bp_phrase], OWN: ["shareholders"]})
     r = pd.read_parquet("retrieval_results.parquet")
     r.loc[r.section == BP, "phrase"] = bp_phrase
     _write_results(r.to_dict("records"))
@@ -837,32 +841,41 @@ def test_report_headline_counts_and_cohort_split(world):
     assert "one claim moves coverage by about 33 points" in page
 
 
-def test_report_counts_passages_of_sections_without_verifiable_claims(world):
-    # History holds only an unverifiable claim — nothing to score — but dense
-    # still handed the model 3 passages for it.
-    hist, c6 = "History", "Acme was founded in 1850."
+HIST = "History"
+
+
+def _with_a_section_holding_only_an_unverifiable_claim(phrases=("history",)):
+    """A History section whose one claim is unverifiable — nothing to score
+    — searched with `phrases`, each handing dense and both the same three
+    passages (d.pdf_0, d.pdf_6, d.pdf_7)."""
+    c6 = "Acme was founded in 1850."
     gsp.write_claims_file(os.path.join("claims", f"{MEMO}.md"), MEMO, "src", {},
-                          [(BP, [C1, C2, C3, C5]), (OWN, [C4]), (hist, [c6])])
-    _write_reviewed(_reviewed_rows() + [_row(hist, c6, None, None, "unverifiable", found=False,
+                          [(BP, [C1, C2, C3, C5]), (OWN, [C4]), (HIST, [c6])])
+    _write_reviewed(_reviewed_rows() + [_row(HIST, c6, None, None, "unverifiable", found=False,
                                              rationale="auto: found=False, nothing was found by search")])
-    _write_results(_results_rows() + [_result(hist, m, "history", r, c)
+    _write_results(_results_rows() + [dict(_result(HIST, m, p, r, c), phrase_index=i)
+                                      for i, p in enumerate(phrases)
                                       for m in ("dense", "both")
                                       for r, c in enumerate(["d.pdf_0", "d.pdf_6", "d.pdf_7"], start=1)])
     queries = pd.read_parquet("claim_queries.parquet")
-    extra = {"memo_id": MEMO, "section": hist, "claim_id": cid(hist, c6), "claim_text": c6, "doc_id": "d.pdf",
+    extra = {"memo_id": MEMO, "section": HIST, "claim_id": cid(HIST, c6), "claim_text": c6, "doc_id": "d.pdf",
              "chunk_id": "d.pdf_0", "chunk_text": CHUNKS["d.pdf_0"], "rank": 1, "score": 0.5}
     _write_claim_queries(queries.to_dict("records") + [extra])
-    with open(os.path.join("retrieval", f"{MEMO}.yaml"), "w", encoding="utf-8") as f:
-        yaml.safe_dump({"memo_id": MEMO, "source_folder": "src",
-                        "sections": {BP: ["business profile"], OWN: ["shareholders"], hist: ["history"]}}, f)
+    _write_phrases({BP: ["business profile"], OWN: ["shareholders"], HIST: list(phrases)})
+
+
+def test_report_counts_passages_of_sections_without_verifiable_claims(world):
+    # History holds only an unverifiable claim — nothing to score — but dense
+    # still handed the model 3 passages for it.
+    _with_a_section_holding_only_an_unverifiable_claim()
     run = _run()
     # the metrics table itself carries the section, so the stored run and the page agree
-    m = ep._metric_row(run.metrics, "section", MEMO, hist, "dense", 5)
+    m = ep._metric_row(run.metrics, "section", MEMO, HIST, "dense", 5)
     assert (m.claims, m.passages) == (0, 3)
     assert pd.isna(m.coverage)
     page = ep.render_summary(run, method="dense", k=5)
     assert "<div class=\"v\">10</div><div class=\"l\">across 3 sections" in page   # 5 + 2 + 3
-    assert f"<td>{hist}</td><td>n/a</td><td>3</td>" in page
+    assert f"<td>{HIST}</td><td>n/a</td><td>3</td>" in page
     assert re.search(rf"<th>{MEMO}</th><th>all</th><td>.*?</td><td>10</td>", page)   # memo row = its sections' sum
     # keyword returned passages for one section only; the tile counts that one
     assert "<div class=\"v\">1</div><div class=\"l\">across 1 sections" in ep.render_summary(_run("b"), method="keyword")
@@ -1187,18 +1200,257 @@ def test_report_escapes_every_text(world):
 
 def test_report_shows_a_delta_against_a_baseline(world):
     base = _run("base", NOW)
-    rows = _results_rows()
-    for r in rows:  # the phrase lever: C2's own evidence now ranks first for dense
-        if r["section"] == BP and r["method"] == "dense" and r["rank"] == 1:
-            r.update(chunk_id="d.pdf_3", chunk_text=CHUNKS["d.pdf_3"])
-    _write_results(rows)
-    _rephrase("plants")
+    _with_c2s_evidence_first_for_dense()
     current = _run("edited", NOW + timedelta(seconds=1))
     page = ep.render_summary(current, k=2, baseline=base)
     assert "100% (3/3)" in page
     assert "+33 pts" in page
     assert base.run_id in page
     assert "different number of search phrases" not in page   # same count: reworded, not added
+
+
+# --- the summary's finer measures (EV-20) ------------------------------------------------------
+
+def _finer(page):
+    """The summary's finer-measures block: its heading up to the memo table's."""
+    return page.split("<h2>Finer measures by search method")[1].split("<h2>By memo and section</h2>")[0]
+
+
+def _with_c2s_evidence_first_for_dense():
+    """The phrase lever pulled for a baseline comparison: dense now ranks
+    C2's own evidence (d.pdf_3) first in Business Profile; keyword and both
+    are unchanged."""
+    rows = _results_rows()
+    for r in rows:
+        if r["section"] == BP and r["method"] == "dense" and r["rank"] == 1:
+            r.update(chunk_id="d.pdf_3", chunk_text=CHUNKS["d.pdf_3"])
+    _write_results(rows)
+    _rephrase("plants")
+
+
+def test_summary_places_the_finer_measures_after_the_chart(world):
+    page = ep.render_summary(_run())
+    assert page.index("<svg") < page.index("<h2>Finer measures by search method (k = 5)</h2>") \
+        < page.index("<h2>By memo and section</h2>")
+
+
+def test_summary_shows_each_methods_recall_pooled_pieces_and_mrr(world):
+    # At k=5 (_results_rows): dense finds C1 and C4 at rank 2 and never C2;
+    # keyword finds only C2, at rank 1; both finds C2 and C4 at 2, C1 at 3.
+    block = _finer(ep.render_summary(_run(), k=5))
+    assert ("<tr><th>meaning search (dense)</th><td>67% (2/3)</td><td>67% avg over 3 claims</td>"
+            "<td>67% (2/3)</td><td>0.33</td></tr>") in block
+    assert ("<tr><td>keyword search (BM25)</td><td>33% (1/3)</td><td>33% avg over 3 claims</td>"
+            "<td>33% (1/3)</td><td>0.33</td></tr>") in block
+    assert ("<tr><td>both combined (RRF)</td><td>100% (3/3)</td><td>100% avg over 3 claims</td>"
+            "<td>100% (3/3)</td><td>0.44</td></tr>") in block   # (1/3 + 1/2 + 1/2) / 3
+    assert "<tr><th>keyword search (BM25)</th>" in ep.render_summary(_run("b"), method="keyword")
+
+
+def test_pooled_pieces_count_evidence_pieces_not_claims(world):
+    # C2 gains a second piece (d.pdf_4), which dense reaches at rank 3: 3 of
+    # the 4 pieces are retrieved (the stored recall_micro), while the
+    # per-claim average is mean(1, 1/2, 1). Counting claims would give 3/3.
+    rows = _reviewed_rows()
+    rows.insert(2, _row(BP, C2, "d.pdf_4", "plants in Ohio", "synthesized"))
+    _write_reviewed(rows)
+    block = _finer(ep.render_summary(_run(), k=3))
+    # every claim has a piece found (coverage 3/3), yet one of C2's two pieces is not
+    assert "<th>meaning search (dense)</th><td>100% (3/3)</td><td>83% avg over 3 claims</td><td>75% (3/4)</td>" in block
+
+
+@pytest.mark.parametrize("value, shown", [(0.125, "0.13"), (1 / 3, "0.33"), (0.0, "0.00"), (float("nan"), "n/a"),
+                                          # halves a float cannot hold: 100 * 0.145 is 14.499999999999998
+                                          ((1 / 2 + 1 / 8 + 1 / 10) / 5, "0.15"), (0.285, "0.29"), (0.575, "0.58")])
+def test_mrr_shows_two_places_rounding_halves_away_from_zero(value, shown):
+    assert ep._score(value) == shown   # f"{0.125:.2f}" gives "0.12"
+
+
+def test_a_half_scaled_from_a_fraction_rounds_away_from_zero():
+    # recall and baseline changes are fractions x 100 too: a mean of 0.145 is 14.5 points, not 14
+    assert (ep._round_half_away(100 * 0.145), ep._round_half_away(-100 * 0.145)) == (15, -15)
+    assert (ep._round_half_away(12.5), ep._round_half_away(12.4), ep._round_half_away(-2.5)) == (13, 12, -3)
+    # an MRR is a mean of 1/rank, so it can sit ~1e-10 from a half without being one: that is not a half
+    assert ep._round_half_away(14.4999999996) == 14
+
+
+def test_summary_shows_each_memos_citation_precision_with_counts(world):
+    # dense at k=2 hands over d.pdf_0, d.pdf_2 (holds C1's quote), d.pdf_6, d.pdf_5 (C4's)
+    block = _finer(ep.render_summary(_run(), k=2))
+    assert f"<tr><td>{MEMO}</td><td>50% (2/4)</td></tr>" in block
+
+
+def test_summary_explains_recall_mrr_and_precision_in_plain_words(world):
+    block = _finer(ep.render_summary(_run(), k=5))
+    assert "counts every piece of evidence a claim lists" in block
+    assert "read it beside the same method's claim coverage, in the column before it" in block
+    assert "best rank over all of its section's search phrases (sections here are searched with 1 phrase each)" \
+        in block
+    assert "counts only the retrieved passages someone cited as evidence" in block
+
+
+def test_mrr_note_gives_the_range_of_phrase_counts(world):
+    extra = [dict(_result(BP, m, "second", 1, "d.pdf_3"), phrase_index=1) for m in ("dense", "both")]
+    _write_results(_results_rows() + extra)
+    _write_phrases({BP: ["business profile", "second"], OWN: ["shareholders"]})
+    assert "searched with 1–2 phrases each" in _finer(ep.render_summary(_run()))
+
+
+def test_mrr_note_leaves_out_sections_with_nothing_to_score(world):
+    # History is searched with 3 phrases but holds no verifiable claim: MRR
+    # never reads its ranks, so its count stays out of the range.
+    _with_a_section_holding_only_an_unverifiable_claim(phrases=("history", "founding", "origins"))
+    assert "searched with 1 phrase each" in _finer(ep.render_summary(_run()))
+
+
+def test_summary_shows_recall_and_mrr_changes_against_a_baseline(world):
+    base = _run("base", NOW)
+    _with_c2s_evidence_first_for_dense()
+    current = _run("edited", NOW + timedelta(seconds=1))
+    # dense at k=2: recall 2/3 -> 3/3, MRR (1/2 + 0 + 1/2)/3 -> (1/2 + 1 + 1/2)/3
+    block = _finer(ep.render_summary(current, k=2, baseline=base))
+    assert ('<td>100% (3/3)</td><td>100% avg over 3 claims<div class="delta">+33 pts vs baseline</div></td>'
+            '<td>100% (3/3)</td>'
+            '<td>0.67<div class="delta">+0.34 vs baseline</div></td>') in block   # 0.67 - 0.33 as shown
+    # both is unchanged: its change shows as zero, not as a fall
+    assert ('<tr><td>both combined (RRF)</td><td>67% (2/3)</td><td>67% avg over 3 claims'
+            '<div class="delta">+0 pts vs baseline</div>'
+            '</td><td>67% (2/3)</td><td>0.33<div class="delta">+0.00 vs baseline</div></td></tr>') in block
+    reverse = _finer(ep.render_summary(base, k=2, baseline=current))
+    assert '<div class="delta neg">-33 pts vs baseline</div>' in reverse
+    assert '<div class="delta neg">-0.34 vs baseline</div>' in reverse
+
+
+@pytest.mark.parametrize("field, now, then, shown", [
+    ("mrr", 0.331, 0.334, '<div class="delta">+0.00 vs baseline</div>'),           # both show 0.33: no fall
+    ("mrr", 0.335, 0.334, '<div class="delta">+0.01 vs baseline</div>'),           # 0.34 vs 0.33
+    ("recall_macro", 0.674, 0.665, '<div class="delta">+0 pts vs baseline</div>'),  # both show 67%
+    ("coverage", 2 / 3, 1 / 3, '<div class="delta">+34 pts vs baseline</div>'),    # 67% vs 33%
+    ("coverage", 1 / 3, 2 / 3, '<div class="delta neg">-34 pts vs baseline</div>'),
+])
+def test_a_change_is_the_gap_between_the_two_figures_shown(field, now, then, shown):
+    ns = types.SimpleNamespace
+    assert ep._delta(ns(**{field: now}), ns(**{field: then}), field, score=field == "mrr") == shown
+
+
+def test_a_baseline_with_no_value_shows_no_change(world):
+    base = _run("base", NOW)
+    dense_total = (base.metrics["scope"] == "all") & (base.metrics["method"] == "dense")
+    base.metrics.loc[dense_total, ["recall_macro", "mrr"]] = float("nan")
+    current = _run("again", NOW + timedelta(seconds=1))
+    block = _finer(ep.render_summary(current, k=2, baseline=base))
+    dense_row = block.split("<tr><th>meaning search (dense)</th>")[1].split("</tr>")[0]
+    assert "vs baseline" not in dense_row
+
+
+_MISSING_ROWS = [
+    (lambda m: (m["scope"] == "all") & (m["method"] == "keyword") & (m["k"] == 5),
+     "the all-memo total at method=keyword, k=5"),
+    (lambda m: m["scope"] == "memo", f"memo {MEMO} at method=dense, k=5"),
+]
+
+
+@pytest.mark.parametrize("drop, named", _MISSING_ROWS)
+def test_summary_refuses_a_run_missing_a_row_it_reads(world, drop, named):
+    run = _run()
+    run.metrics = run.metrics[~drop(run.metrics)]
+    with pytest.raises(ep.EvalInputError, match=re.escape(f"{run.run_id}: no metrics row for {named}")) as refused:
+        ep.render_summary(run)
+    assert "score the run again" in str(refused.value)
+
+
+@pytest.mark.parametrize("drop, named", _MISSING_ROWS)
+def test_summary_refuses_a_baseline_missing_a_row_it_reads(world, drop, named):
+    # A comparable baseline shares the golden set, so these rows are missing
+    # only from a damaged metrics table — showing "no change" would hide it.
+    base = _run("base", NOW)
+    base.metrics = base.metrics[~drop(base.metrics)]
+    current = _run("again", NOW + timedelta(seconds=1))
+    with pytest.raises(ep.EvalInputError, match=re.escape(f"{base.run_id}: no metrics row for {named}")) as refused:
+        ep.render_summary(current, baseline=base)
+    # score rebuilds today's run, not an earlier one, so re-scoring cannot repair a baseline
+    assert "choose another baseline run" in str(refused.value)
+
+
+def test_the_coverage_chart_refuses_a_missing_total_at_any_k(world):
+    # the chart draws every k up to the depth, not just the page's k: a lost
+    # k=7 row would otherwise join k=6 to k=8 and look complete
+    run = _run()
+    m = run.metrics
+    run.metrics = m[~((m["scope"] == "all") & (m["method"] == "keyword") & (m["k"] == 7))]
+    with pytest.raises(ep.EvalInputError, match="the all-memo total at method=keyword, k=7"):
+        ep.render_summary(run, k=5)
+
+
+def test_the_baseline_line_refuses_a_missing_total_at_any_k(world):
+    base = _run("base", NOW)
+    m = base.metrics
+    base.metrics = m[~((m["scope"] == "all") & (m["method"] == "dense") & (m["k"] == 7))]
+    current = _run("again", NOW + timedelta(seconds=1))
+    with pytest.raises(ep.EvalInputError, match="choose another baseline run"):
+        ep.render_summary(current, k=5, baseline=base)
+
+
+def test_mrr_note_warns_when_the_baseline_searched_with_other_phrase_counts(world):
+    # MRR takes a best rank over all of a section's phrases, so more phrases alone lift it
+    base = _run("base", NOW)
+    extra = [dict(_result(BP, m, "second", 1, "d.pdf_3"), phrase_index=1) for m in ("dense", "both")]
+    _write_results(_results_rows() + extra)
+    _write_phrases({BP: ["business profile", "second"], OWN: ["shareholders"]})
+    block = _finer(ep.render_summary(_run("more", NOW + timedelta(seconds=1)), baseline=base))
+    assert ("the baseline's sections were searched with 1 phrase each, so part of the MRR change "
+            "comes from the number of phrases") in block
+
+
+def test_a_baseline_recording_no_phrase_counts_still_reports(world):
+    # a baseline needs only meta.json and metrics; one without phrase counts is flagged, not a crash
+    base = _run("base", NOW)
+    del base.meta["phrase_counts"]
+    page = ep.render_summary(_run("again", NOW + timedelta(seconds=1)), baseline=base)
+    assert "different number of search phrases" in page
+    assert "part of the MRR change comes from the number of phrases" in _finer(page)
+
+
+def test_pooled_pieces_match_the_stored_pooled_recall_at_every_k(world):
+    # guards the one recount on the pages until EV-21 stores the counts
+    rows = _reviewed_rows()
+    rows.insert(2, _row(BP, C2, "d.pdf_4", "plants in Ohio", "synthesized"))
+    _write_reviewed(rows)
+    run = _run()
+    for method in rp._RETRIEVAL_METHODS:
+        for k in range(1, run.meta["depth"] + 1):
+            hit, total = ep._pooled_pieces(run, method, k)
+            assert hit / total == pytest.approx(ep._metric_row(run.metrics, "all", "ALL", "ALL", method, k).recall_micro)
+
+
+def test_mrr_note_stays_quiet_when_the_phrase_counts_match(world):
+    base = _run("base", NOW)
+    _with_c2s_evidence_first_for_dense()   # reworded, same count
+    block = _finer(ep.render_summary(_run("edited", NOW + timedelta(seconds=1)), baseline=base))
+    assert "number of phrases" not in block
+
+
+def test_a_run_with_no_verifiable_claims_shows_na_without_the_notes(world):
+    _write_reviewed([dict(r, tag="unverifiable", tag_draft="unverifiable") for r in _reviewed_rows()])
+    block = _finer(ep.render_summary(_run(), k=5))
+    assert "<th>meaning search (dense)</th><td>n/a (0/0)</td><td>n/a</td><td>n/a (0/0)</td><td>n/a</td>" in block
+    assert "counts every piece" not in block
+    assert "best rank" not in block
+    # passages were still handed over and none was cited: a real zero, not n/a
+    assert f"<tr><td>{MEMO}</td><td>0% (0/7)</td></tr>" in block
+
+
+def test_summary_outcomes_and_miss_reasons_wear_the_status_colours(world):
+    page = ep.render_summary(_run(), k=2)
+    traced = page.split("<h2>Traced examples</h2>")[1].split("<h2>")[0]
+    assert '<span class="badge hit">retrieved at k = 2</span> — rank 2' in traced   # C1
+    # dense misses C2 but keyword finds it at rank 1: blue "other", never red
+    assert '<span class="badge other">missed at k = 2 — found by another method at this depth</span>' in traced
+    assert "badge none" not in traced
+    reasons = page.split("<h2>Why the missed claims were missed")[1]
+    for key, caption in [("other", "found by another method at this depth"),
+                         ("deep", "found only deeper (by k=20)"), ("none", "not found by any method within 20")]:
+        assert f'<td><span class="badge {key}">{caption}</span></td>' in reasons
 
 
 def test_report_refuses_an_incomparable_baseline(world):
@@ -1223,10 +1475,15 @@ def test_traced_example_quotes_the_evidence_that_was_found(world):
 
 def test_report_shows_no_raw_metrics(world):
     # MRR rises with the number of phrases and is not comparable between
-    # sections; precision needs notes no page carries. Both stay in
-    # metrics.parquet only. The claims page shows recall (EV-19) — in plain
-    # words with its own note, never as the terms banned here.
-    for page in _pages(_run()):
+    # sections; precision is a floor. Only the summary shows them (EV-20),
+    # each beside its plain-words note; the claims page shows recall
+    # (EV-19). No page names a stored column or brings back the old
+    # Details table. The shared stylesheet is part of every page, so a
+    # class or comment naming precision or MRR there would fail too.
+    summary, *others = _pages(_run())
+    for banned in ("<h2>Details</h2>", "recall_macro", "macro recall"):
+        assert banned not in summary
+    for page in others:
         for banned in ("<h2>Details</h2>", "mrr", "MRR", "precision", "recall_macro", "macro recall"):
             assert banned not in page
 
