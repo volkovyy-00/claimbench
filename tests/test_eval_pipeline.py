@@ -918,14 +918,12 @@ def test_claims_page_headline_gives_each_methods_best_rank_as_chips(world):
 
 
 def test_claim_status_classes_are_four_and_distinct(world):
-    # One class per miss category plus "hit" — four in all, each with its own
-    # badge rule in the stylesheet. The exact pairing is pinned: miss_taxonomy
-    # assigns categories by position, so a reorder must fail here, not
-    # silently recolour every badge.
-    assert ep._status_class(20) == {"found by another method at this depth": "other",
-                                    "found only deeper (by k=20)": "deep",
-                                    "not found by any method within 20": "none"}
-    for cls in ("hit", "other", "deep", "none"):
+    # The stable miss keys ARE the badge classes ("hit" beside them — four
+    # in all); the display captions are built from key + depth, so a
+    # caption can be reworded without any text-keyed lookup breaking.
+    assert ep._MISS_KEYS == ("other", "deep", "none")
+    assert ep._miss_caption("deep", 20) == "found only deeper (by k=20)"
+    for cls in ("hit", *ep._MISS_KEYS):
         assert f".badge.{cls}{{" in ep._CSS
 
 
@@ -1033,6 +1031,25 @@ def test_claims_page_toc_and_jump_links_resolve(world):
     assert set(hrefs) <= set(re.findall(r'id="([^"]+)"', page))
     assert f"memo-{MEMO}" in hrefs                              # every memo heading is linked
     assert {f"s-{MEMO}-1", f"s-{MEMO}-2"} <= set(hrefs)         # and every section heading
+
+
+def test_claim_grid_lets_the_body_column_shrink(world):
+    # grid "1fr" means minmax(auto,1fr): the no-wrap preview line would set
+    # the column's minimum and push every card past the viewport (measured
+    # 1914px in a 1280px window on the real run). minmax(0,1fr) lets the
+    # summary line clip instead.
+    rule = ep._CSS[ep._CSS.index(".claim{"):]
+    assert "minmax(0,1fr)" in rule[:rule.index("}")]
+
+
+def test_a_depth_one_run_still_renders(world):
+    # The chart's x-axis divides by depth - 1, which now comes from the
+    # run's meta.json rather than a constant — depth 1 must not divide by
+    # zero.
+    run = _run()
+    run.meta["depth"] = 1
+    run.metrics = run.metrics[run.metrics["k"] <= 1]
+    assert "<svg" in ep.render_summary(run, k=1)
 
 
 def test_nav_stays_on_one_line_so_anchors_clear_it(world):
@@ -1464,7 +1481,7 @@ def test_index_rebuilt_with_other_chunks_after_retrieve_halts(world):
 
 
 def test_miss_labels_follow_the_runs_depth():
-    assert all("7" in c for c in ep._miss_categories(7)[1:])
+    assert all("7" in ep._miss_caption(key, 7) for key in ("deep", "none"))
 
 
 # --- PR #2 review ------------------------------------------------------------------------------

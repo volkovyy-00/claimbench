@@ -1138,31 +1138,29 @@ def check_comparable(run: Run, baseline: Run) -> None:
 _METHOD_LABEL = {"dense": "meaning search (dense)", "keyword": "keyword search (BM25)",
                  "both": "both combined (RRF)"}
 _METHOD_COLOR = {"dense": "#2563eb", "keyword": "#d97706", "both": "#059669"}
-def _miss_categories(depth: int) -> tuple[str, str, str]:
-    """The three miss reasons, in the order miss_taxonomy assigns them:
-    [0] another method finds it at this k, [1] some method finds it only
-    deeper, [2] no method within the retrieval depth. Written from the
-    run's own recorded depth (meta["depth"]), never today's
-    _RETRIEVE_DEPTH, so a run scored under another depth still captions
-    itself correctly."""
-    return ("found by another method at this depth",
-            f"found only deeper (by k={depth})",
-            f"not found by any method within {depth}")
+# The three miss reasons' stable keys — each is also its badge class on
+# the claims page (.badge.other/.deep/.none; "retrieved at k" is .hit,
+# and the piece-level grey .miss is separate on purpose, _piece_badge
+# says why). miss_taxonomy assigns the key; every caption is built from
+# it, so rewording a caption can never break a lookup.
+_MISS_KEYS = ("other", "deep", "none")
 
 
-def _status_class(depth: int) -> dict[str, str]:
-    """Each miss category's badge class on the claims page; "retrieved at
-    k" is class "hit". Four in all — the piece-level grey "miss" class is
-    separate on purpose (_piece_badge says why). Zipped positionally with
-    _miss_categories, so the category → class pairing has one source of
-    truth and a reorder there is a reorder here."""
-    return dict(zip(_miss_categories(depth), ("other", "deep", "none")))
+def _miss_caption(key: str, depth: int) -> str:
+    """A miss key's display text, written from the run's own recorded
+    depth (meta["depth"]), never today's _RETRIEVE_DEPTH, so a run scored
+    under another depth still captions itself correctly."""
+    return {"other": "found by another method at this depth",
+            "deep": f"found only deeper (by k={depth})",
+            "none": f"not found by any method within {depth}"}[key]
 _TABLE_CLOSE = "</table>"
 _CSS = """
 /* Shared by the three pages; colour tokens on :root (light only). The
-   summary keeps its pre-EV-19 look (span.quote most of all); the claim,
-   piece, badge, rank, toc and passage classes serve only the claims and
-   re-review pages. */
+   summary shares the tokens, sticky nav and folded-summary styling by
+   design (EV-19: shared styling, content and order unchanged); only
+   span.quote pins its traced examples to the pre-EV-19 inline look. The
+   claim, piece, badge, rank, toc and passage classes serve only the
+   claims and re-review pages. */
 :root{--bg:#fafaf9;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--line2:#d1d5db;--head:#f3f4f6;
      --accent:#6366f1;--dense:#2563eb;--keyword:#d97706;--both:#059669;
      --hit:#166534;--hit-bg:#dcfce7;--other:#1e40af;--other-bg:#dbeafe;--deep:#92400e;--deep-bg:#fef3c7;
@@ -1192,7 +1190,7 @@ th{background:var(--head)}.bar{background:var(--line);height:10px;width:160px;di
 .bar span{display:block;height:10px;background:var(--dense)}
 .scroll{overflow-x:auto}
 /* one claim: number column + body; :target highlights a claim reached by link */
-.claim{display:grid;grid-template-columns:2.6em 1fr;background:var(--card);border:1px solid var(--line);
+.claim{display:grid;grid-template-columns:2.6em minmax(0,1fr);background:var(--card);border:1px solid var(--line);
      border-radius:8px;padding:12px 14px 10px 10px;margin:0 0 10px;scroll-margin-top:56px}
 .claim:target{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .n{color:var(--muted);font-size:13px;padding-top:3px}
@@ -1229,19 +1227,20 @@ blockquote.quote{margin:4px 0 6px 12px;padding:0 0 0 10px;border-left:3px solid 
      padding:0 6px;margin-right:6px}
 .preview{margin-left:8px}
 details[open]>summary .preview{display:none}
-@media (max-width:640px){.preview{display:none}.claim{grid-template-columns:2em 1fr;padding:10px}}
+@media (max-width:640px){.preview{display:none}.claim{grid-template-columns:2em minmax(0,1fr);padding:10px}}
 """
 
 
 def miss_taxonomy(run: Run, method: str, k: int) -> pd.DataFrame:
     """
     One row per verifiable claim NOT covered at (method, k), with why —
-    the _miss_categories(run.meta["depth"]) reasons, hit-tested by
-    _within_k so this and the claims page's piece counts share one rule.
+    the stable `key` (_MISS_KEYS) plus its `category` caption
+    (_miss_caption at run.meta["depth"]), hit-tested by _within_k so this
+    and the claims page's piece counts share one rule.
     """
     if run.claim_hits.empty:
-        return pd.DataFrame(columns=["claim_id", "bucket", "category"])
-    categories = _miss_categories(run.meta["depth"])
+        return pd.DataFrame(columns=["claim_id", "bucket", "category", "key"])
+    depth = run.meta["depth"]
     first = (run.claim_hits.groupby(["claim_id", "method"])["best_rank"].min()
              .unstack("method").reindex(columns=list(_RETRIEVAL_METHODS)))
     buckets = run.claim_hits.groupby("claim_id")["bucket"].first()
@@ -1250,13 +1249,14 @@ def miss_taxonomy(run: Run, method: str, k: int) -> pd.DataFrame:
         if _within_k(ranks[method], k):
             continue
         if any(_within_k(ranks[m], k) for m in _RETRIEVAL_METHODS if m != method):
-            category = categories[0]
-        elif any(_within_k(r, run.meta["depth"]) for r in ranks):
-            category = categories[1]
+            key = "other"
+        elif any(_within_k(r, depth) for r in ranks):
+            key = "deep"
         else:
-            category = categories[2]
-        rows.append({"claim_id": claim_id, "bucket": buckets[claim_id], "category": category})
-    return pd.DataFrame(rows, columns=["claim_id", "bucket", "category"])
+            key = "none"
+        rows.append({"claim_id": claim_id, "bucket": buckets[claim_id],
+                     "category": _miss_caption(key, depth), "key": key})
+    return pd.DataFrame(rows, columns=["claim_id", "bucket", "category", "key"])
 
 
 def _e(value) -> str:
@@ -1298,6 +1298,16 @@ def _memo_anchor(memo_id: str) -> str:
     """The one spelling of a memo heading's anchor id, shared by the jump
     line, both tables of contents and both pages' memo headings."""
     return f"memo-{_e(memo_id)}"
+
+
+def _memo_heading_and_toc(memo_id: str, heading_cnt: str, toc_cnt: str, items: str = "") -> tuple[str, str]:
+    """One memo's <h2> heading and its table-of-contents entry, built as a
+    pair around _memo_anchor so the two pages' markup cannot drift apart;
+    `items` is the claims page's nested <ul> of section links."""
+    heading = f'<h2 id="{_memo_anchor(memo_id)}">{_e(memo_id)} <span class="cnt">{heading_cnt}</span></h2>'
+    entry = (f'<div><b><a href="#{_memo_anchor(memo_id)}">{_e(memo_id)}</a></b> '
+             f'<span class="cnt">{toc_cnt}</span>{items}</div>')
+    return heading, entry
 
 
 def _jump_line(memo_ids: list[str]) -> str:
@@ -1371,7 +1381,7 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
     depth = run.meta["depth"]
 
     def x(kk):
-        return left + (kk - 1) * (width - left - right) / (depth - 1)
+        return left + (kk - 1) * (width - left - right) / max(depth - 1, 1)   # depth 1: a single column, no /0
 
     def y(v):
         return top + (1 - v) * (height - top - bottom)
@@ -1557,9 +1567,10 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
     out.append(f"<h2>Why the missed claims were missed (k = {k})</h2>")
     misses = miss_taxonomy(run, method, k)
     table = ["<table><tr><th>reason</th><th>extractive</th><th>synthesized</th></tr>"]
-    for category in _miss_categories(run.meta["depth"]):
-        rows = misses[misses["category"] == category]
-        table.append(f"<tr><td>{_e(category)}</td><td>{int((rows['bucket'] == 'EXTRACTIVE').sum())}</td>"
+    for key in _MISS_KEYS:
+        rows = misses[misses["key"] == key]
+        table.append(f"<tr><td>{_e(_miss_caption(key, run.meta['depth']))}</td>"
+                     f"<td>{int((rows['bucket'] == 'EXTRACTIVE').sum())}</td>"
                      f"<td>{int((rows['bucket'] == 'SYNTHESIZED').sum())}</td></tr>")
     table.append(_TABLE_CLOSE)
     out.append("".join(table))
@@ -1652,14 +1663,16 @@ def _heading_counts(row, k: int) -> str:
 def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: str | None,
                  method: str, k: int, depth: int) -> str:
     """One claim on the claims page: its number, text and type, its status
-    badge (reason None means retrieved; otherwise the miss_taxonomy category,
-    class _status_class), one rank chip per method, and its recall at k with
+    badge (reason None means retrieved; otherwise the miss_taxonomy key,
+    which is the badge class, captioned by _miss_caption), one rank chip
+    per method, and its recall at k with
     counts, then — folded — each piece of evidence with its own badge and
     chips and its quotes (_quotes: a human-added row can hold several)."""
     piece_ranks = [{m: ranks[(claim.claim_id, g, m)] for m in _RETRIEVAL_METHODS} for g in range(len(pieces))]
     best = {m: min((r[m] for r in piece_ranks if pd.notna(r[m])), default=np.nan) for m in _RETRIEVAL_METHODS}
-    cls = "hit" if reason is None else _status_class(depth)[reason]
-    status = f"retrieved at k = {k}" if reason is None else f"missed at k = {k} — {reason}"
+    cls = "hit" if reason is None else reason
+    status = (f"retrieved at k = {k}" if reason is None
+              else f"missed at k = {k} — {_miss_caption(reason, depth)}")
     hit = sum(1 for r in piece_ranks if _within_k(r[method], k))
     folded, n_quotes = [], 0
     for i, (piece, piece_rank) in enumerate(zip(pieces, piece_ranks), start=1):
@@ -1697,7 +1710,7 @@ def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: di
     pieces = _evidence_pieces(run)
     ranks = run.claim_hits.set_index(["claim_id", "group", "method"])["best_rank"].to_dict()
     misses = miss_taxonomy(run, method, k)
-    reason_of = dict(zip(misses["claim_id"], misses["category"]))
+    reason_of = dict(zip(misses["claim_id"], misses["key"]))
     verifiable = run.claims[run.claims["bucket"] != "UNVERIFIABLE"]
 
     def counts(scope: str, memo_id: str, section: str = "ALL") -> str:
@@ -1728,20 +1741,20 @@ def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: di
             continue
         memo_ids.append(memo_id)
         memo_counts = counts("memo", memo_id)
-        bodies.append(f'<h2 id="{_memo_anchor(memo_id)}">{_e(memo_id)} <span class="cnt">{memo_counts}</span></h2>')
-        items = []
+        items, sections = [], []
         for i, (section, claims) in enumerate(memo_claims.groupby("section", sort=False), start=1):
             section_id = f"s-{_e(memo_id)}-{i}"
             section_counts = counts("section", memo_id, str(section))
             items.append(f'<li><a href="#{section_id}">{_e(section)}</a> '
                          f'<span class="cnt">{section_counts}</span></li>')
-            bodies.append(f'<h3 id="{section_id}">{_e(section)} <span class="cnt">{section_counts}</span></h3>')
+            sections.append(f'<h3 id="{section_id}">{_e(section)} <span class="cnt">{section_counts}</span></h3>')
             for claim in claims.itertuples(index=False):
                 number += 1
-                bodies.append(_claim_block(number, claim, pieces[claim.claim_id], ranks,
-                                           reason_of.get(claim.claim_id), method, k, depth))
-        toc.append(f'<div><b><a href="#{_memo_anchor(memo_id)}">{_e(memo_id)}</a></b> '
-                   f'<span class="cnt">{memo_counts}</span><ul>{"".join(items)}</ul></div>')
+                sections.append(_claim_block(number, claim, pieces[claim.claim_id], ranks,
+                                             reason_of.get(claim.claim_id), method, k, depth))
+        heading, entry = _memo_heading_and_toc(memo_id, memo_counts, memo_counts, f'<ul>{"".join(items)}</ul>')
+        bodies.extend([heading, *sections])
+        toc.append(entry)
     out = [f"<h1>Claims — {_e(run.run_id)}</h1>", _view_line(run, method, k),
            _nav(run, pages, "claims", _jump_line(memo_ids)), intro,
            f'<nav class="toc">{"".join(toc)}</nav>', *bodies]
@@ -1779,10 +1792,10 @@ def render_rereview(run: Run) -> str:
             continue
         memo_ids.append(memo_id)
         memo_counts = f'{_count(memo["claim_id"].nunique(), "claim")} · {_count(len(memo), "passage")}'
-        toc.append(f'<div><b><a href="#{_memo_anchor(memo_id)}">{_e(memo_id)}</a></b> '
-                   f'<span class="cnt">{memo_counts} · strongest {memo["score"].max():.3f}</span></div>')
-        bodies.append(f'<h2 id="{_memo_anchor(memo_id)}">{_e(memo_id)} <span class="cnt">{memo_counts} · '
-                      f'strongest passage first</span></h2>')
+        heading, entry = _memo_heading_and_toc(memo_id, f"{memo_counts} · strongest passage first",
+                                               f'{memo_counts} · strongest {memo["score"].max():.3f}')
+        toc.append(entry)
+        bodies.append(heading)
         # stored strongest first, so each claim first appears at its strongest passage
         for _, group in memo.groupby("claim_id", sort=False):
             number += 1
@@ -1871,7 +1884,7 @@ RUN_DEMO_REPORT = False
 if RUN_DEMO_REPORT:
     RUN = None          # None = the latest run
     METHOD = "dense"    # dense | keyword | both
-    K = 5               # passages per search phrase, 1.._RETRIEVE_DEPTH
+    K = 5               # passages per search phrase, 1..the run's scored depth
     BASELINE = None     # a run id to show changes against, or None
     show_report(RUN, method=METHOD, k=K, baseline=BASELINE)
 
@@ -1881,7 +1894,7 @@ if RUN_DEMO_REPORT:
 
 # %%
 _USAGE = ("usage: python eval_pipeline.py score [label] | "
-          f"report <run_id|latest> [baseline_run_id] [--method=dense|keyword|both] [--k=1..{_RETRIEVE_DEPTH}]")
+          "report <run_id|latest> [baseline_run_id] [--method=dense|keyword|both] [--k=N, 1..the run's scored depth]")
 
 
 def _main(argv: list[str]) -> None:

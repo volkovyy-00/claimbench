@@ -28,7 +28,7 @@ enforces that structurally.
   every method and k, so one per run, linking only within itself). Links
   are relative; only the summary carries baseline changes. The pages
   caption every rank from the run's own recorded depth (`meta["depth"]`,
-  via `_miss_categories`/`_status_class`/`_rank_chips`/`_piece_badge`), so
+  via `_miss_caption`/`_rank_chips`/`_piece_badge`), so
   a run scored under another `_RETRIEVE_DEPTH` still reports, wearing its
   own depth; only a run recording no depth is refused (`_check_view`). A
   baseline at another depth **is** refused (`check_comparable`): RRF fuses
@@ -38,7 +38,8 @@ enforces that structurally.
   recall averaged per claim (EV-19) on each claim, memo and section, read
   from the stored metrics rows (`_heading_counts`, never recomputed), with
   a plain-words note on what pulls it down; the summary shows no recall.
-  Claim statuses are four badge classes (`_STATUS_CLASS` + `hit`); piece
+  Claim statuses are four badge classes (`_MISS_KEYS` + `hit`; the
+  miss key is the class, captioned by `_miss_caption`); piece
   badges are grey on purpose (`_piece_badge` says why). The claims page takes
   each claim's pieces of evidence from the stored `group_chunk_ids`, never
   grouping again, so a later change to decision 1's code cannot move a
