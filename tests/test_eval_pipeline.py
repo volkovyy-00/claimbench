@@ -1402,6 +1402,27 @@ def test_mrr_note_warns_when_the_baseline_searched_with_other_phrase_counts(worl
             "comes from the number of phrases") in block
 
 
+def test_a_baseline_recording_no_phrase_counts_still_reports(world):
+    # a baseline needs only meta.json and metrics; one without phrase counts is flagged, not a crash
+    base = _run("base", NOW)
+    del base.meta["phrase_counts"]
+    page = ep.render_summary(_run("again", NOW + timedelta(seconds=1)), baseline=base)
+    assert "different number of search phrases" in page
+    assert "part of the MRR change comes from the number of phrases" in _finer(page)
+
+
+def test_pooled_pieces_match_the_stored_pooled_recall_at_every_k(world):
+    # guards the one recount on the pages until EV-21 stores the counts
+    rows = _reviewed_rows()
+    rows.insert(2, _row(BP, C2, "d.pdf_4", "plants in Ohio", "synthesized"))
+    _write_reviewed(rows)
+    run = _run()
+    for method in rp._RETRIEVAL_METHODS:
+        for k in range(1, run.meta["depth"] + 1):
+            hit, total = ep._pooled_pieces(run, method, k)
+            assert hit / total == pytest.approx(ep._metric_row(run.metrics, "all", "ALL", "ALL", method, k).recall_micro)
+
+
 def test_mrr_note_stays_quiet_when_the_phrase_counts_match(world):
     base = _run("base", NOW)
     _with_c2s_evidence_first_for_dense()   # reworded, same count

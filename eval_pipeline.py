@@ -1218,7 +1218,8 @@ h3{font-size:15px;margin:20px 0 6px;scroll-margin-top:56px}
 table{border-collapse:collapse;width:100%;font-size:13px;background:var(--card)}
 th,td{border:1px solid var(--line2);padding:4px 8px;text-align:left;vertical-align:top}
 table.narrow{width:auto;min-width:min(420px,100%);margin-top:12px}
-.notes{margin:8px 0 0;font-size:13px;color:var(--muted)}.notes p{margin:2px 0}.notes b{color:var(--ink)}
+/* muted explanations under a table — not .note, the amber warning box */
+.explain{margin:8px 0 0;font-size:13px;color:var(--muted)}.explain p{margin:2px 0}.explain b{color:var(--ink)}
 th{background:var(--head)}.bar{background:var(--line);height:10px;width:160px;display:inline-block;vertical-align:middle}
 .bar span{display:block;height:10px;background:var(--dense)}
 .scroll{overflow-x:auto}
@@ -1401,9 +1402,11 @@ def _required_row(run: Run, scope: str, memo_id: str, section: str, method: str,
                   *, baseline: bool = False):
     """The metrics row a page must read, or a refusal naming it. A run —
     or baseline — whose metrics.parquet lost rows (damaged, or filtered by
-    hand) would otherwise render as zeros or crash mid-page. Only a section
-    row may legitimately be absent (a section holding only unverifiable
-    claims that was never searched), so callers read those with _metric_row.
+    hand) would otherwise render as zeros or crash mid-page. A section row
+    may legitimately be absent (a section holding only unverifiable claims
+    that was never searched), so the summary reads section rows with
+    _metric_row; the claims page lists only sections holding verifiable
+    claims, whose rows every run writes, so it requires them here.
     `baseline` changes only the advice: `score` rebuilds a run from today's
     phrases and results, so it can repair the run being reported, never an
     earlier run serving as its baseline."""
@@ -1497,16 +1500,31 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
     return "".join(parts)
 
 
+def _phrase_counts(run: Run) -> dict:
+    """memo -> section -> number of search phrases, as the run recorded
+    them; {} for a run that recorded none (a baseline needs only meta.json
+    and metrics, so its counts may be missing)."""
+    return run.meta.get("phrase_counts", {})
+
+
+def _phrase_count_changes(run: Run, baseline: Run) -> list[tuple[str, str]]:
+    """(memo, section) pairs, sorted, that the two runs searched with a
+    different number of phrases — over both runs' sections, since one only
+    the baseline searched lost its passages too. A count one run did not
+    record differs. The one comparison behind _phrase_count_note and the
+    MRR note's caveat."""
+    counts, base_counts = _phrase_counts(run), _phrase_counts(baseline)
+    keys = sorted({(m, s) for c in (counts, base_counts) for m, sections in c.items() for s in sections})
+    return [(m, s) for m, s in keys if counts.get(m, {}).get(s) != base_counts.get(m, {}).get(s)]
+
+
 def _phrase_count_note(run: Run, baseline: Run | None) -> str:
     """A warning when the baseline searched some section with a different
     number of phrases: more phrases hand the model more passages, so part of
     any change there is simply more text, not better questions."""
     if baseline is None:
         return ""
-    counts, base_counts = run.meta.get("phrase_counts", {}), baseline.meta.get("phrase_counts", {})
-    # Both runs' sections: one only the baseline searched lost its passages too.
-    keys = sorted({(m, s) for c in (counts, base_counts) for m, sections in c.items() for s in sections})
-    changed = [f"{m} / {s}" for m, s in keys if counts.get(m, {}).get(s) != base_counts.get(m, {}).get(s)]
+    changed = [f"{m} / {s}" for m, s in _phrase_count_changes(run, baseline)]
     if not changed:
         return ""
     more = "…" if len(changed) > 5 else ""
@@ -1581,10 +1599,12 @@ def _pooled_pieces(run: Run, method: str, k: int) -> tuple[int, int]:
 
 
 def _metrics_block(run: Run, method: str, k: int, baseline: Run | None) -> str:
-    """The summary's finer measures at k (EV-20). Per search method: recall
-    averaged per claim, pieces of evidence retrieved pooled with counts
-    (_pooled_pieces) and MRR, the first and last with their change against
-    the baseline. Then citation precision per memo for the chosen method.
+    """The summary's finer measures at k (EV-20). Per search method: its
+    claim coverage (repeated from the chart, so recall reads beside it),
+    recall averaged per claim, pieces of evidence retrieved pooled with
+    counts (_pooled_pieces) and MRR — recall and MRR with their change
+    against the baseline. Then citation precision per memo for the chosen
+    method.
     Read from the all-memo and memo rows, which _required_row refuses by
     name when missing — in the baseline too. Each measure comes with a
     plain-words note that keeps it from being misread; a run with no
@@ -1609,29 +1629,35 @@ def _metrics_block(run: Run, method: str, k: int, baseline: Run | None) -> str:
     if not verifiable.empty:   # the MRR note's ranges are taken over these claims' sections
         sections = set(zip(verifiable["memo_id"], verifiable["section"]))
 
-        def phrases(r: Run) -> str:
-            counts = sorted({r.meta["phrase_counts"][memo_id][section] for memo_id, section in sections})
+        def phrases(r: Run) -> str | None:
+            recorded = _phrase_counts(r)
+            counts = sorted({n for memo_id, section in sections
+                             if (n := recorded.get(memo_id, {}).get(section)) is not None})
+            if not counts:
+                return None
             return _count(counts[0], "phrase") if len(counts) == 1 else f"{counts[0]}–{counts[-1]} phrases"
 
         # MRR rises with the phrase count alone, so a change against a baseline searched otherwise says so
-        other = baseline is not None and any(
-            run.meta["phrase_counts"][memo_id][section] != baseline.meta["phrase_counts"][memo_id][section]
-            for memo_id, section in sections)
-        caveat = (f"; the baseline's sections were searched with {phrases(baseline)} each, so part of the MRR "
-                  "change comes from the number of phrases, not better phrases" if other and baseline else "")
-        out.append('<div class="notes">'
+        caveat = ""
+        if baseline is not None and sections & set(_phrase_count_changes(run, baseline)):
+            searched = phrases(baseline)
+            caveat = ((f"; the baseline's sections were searched with {searched} each" if searched else
+                       "; the baseline searched these sections with a different number of phrases")
+                      + ", so part of the MRR change comes from the number of phrases, not better phrases")
+        out.append('<div class="explain">'
                    "<p><b>Evidence recall</b> counts every piece of evidence a claim lists; alternative sources "
                    "for the same fact pull it down, so read it beside the same method's claim coverage, in the "
                    "column before it.</p>"
                    "<p><b>MRR</b> (mean reciprocal rank) takes each claim's best rank over all of its section's "
-                   f"search phrases (sections here are searched with {phrases(run)} each), so it is optimistic "
+                   f"search phrases (sections here are searched with {phrases(run) or 'an unrecorded number of phrases'} "
+                   "each), so it is optimistic "
                    f"and not comparable between sections{caveat}.</p></div>")
     out.append(f'<table class="narrow"><tr><th>memo</th><th>citation precision, {_e(_METHOD_LABEL[method])}</th></tr>')
     for memo_id in run.meta["memos"]:
         row = _required_row(run, "memo", memo_id, "ALL", method, k)
         out.append(f"<tr><td>{_e(memo_id)}</td><td>{_pct(row.retrieved_golden, row.retrieved)}</td></tr>")
     out.append(_TABLE_CLOSE)
-    out.append('<div class="notes"><p><b>Citation precision</b> counts only the retrieved passages someone cited '
+    out.append('<div class="explain"><p><b>Citation precision</b> counts only the retrieved passages someone cited '
                "as evidence, so it is a floor: an uncited passage may still have been useful.</p></div>")
     return "".join(out)
 
