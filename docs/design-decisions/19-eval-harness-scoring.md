@@ -67,9 +67,12 @@ separate evidence groups (correct). When both copies were cited, coverage
 is unaffected but a claim found in only one copy can reach at most 50%
 macro recall; when the reviewer cited only one copy, a retrieved chunk
 from the other is never credited (a miss, and against precision) — 0 such
-claims on the 2026-09-23 sheets. Deliberately not fixed. Since EV-1 the
-report shows no macro recall (it stays in the run's `metrics.parquet`),
-so no page explains this cap.
+claims on the 2026-09-23 sheets. Deliberately not fixed. Since EV-19 the
+claims page shows recall averaged per claim (read from the run's
+`metrics.parquet`) and carries a plain-words note that alternative or
+duplicate sources for the same fact each count, so recall understates how
+often the fact itself was found — that note is the page's explanation of
+this cap.
 
 **Quotes not verbatim in their chunk.** 20 of 169 golden quotes
 (2026-09-23) are not in their own chunk's text after `_normalize_span`

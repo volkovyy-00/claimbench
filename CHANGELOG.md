@@ -13,6 +13,31 @@ including most of 0.3.0, cite none. Tags start at `v0.3.0`: 0.1.0 and
 here. Pre-1.0 — the CLI/API may break between
 minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 
+## [0.4.1] - 2026-09-26
+
+### Changed
+
+- The claims and re-review report pages are restyled to be scannable.
+  Each claim shows its retrieval status as one of four coloured labels,
+  its best rank per method as chips, and its recall at k with counts
+  (recall was already in `metrics.parquet`; the pages now show it and say
+  in plain words what pulls it down); memo and section headings carry
+  claim coverage and recall, equal to their `metrics.parquet` rows; both
+  pages open with a linked table of contents; a folded re-review passage
+  shows the start of its text, and an opened one keeps its line breaks
+  and scrolls inside its own box. The summary page only picks up the
+  shared styling — its content and order are unchanged. (EV-19)
+- `report` (the command and `show_report`) captions every rank label from
+  the depth the run records in its `meta.json` instead of the current
+  `_RETRIEVE_DEPTH`, so runs scored under an older depth stay reportable;
+  `--k` is validated against that recorded depth. Two inputs that used to
+  render now refuse with a named error: a run whose `meta.json` records
+  no retrieval depth, and a baseline scored at a different depth than the
+  run (rank fusion cuts both lists at the depth first, so the combined
+  method's results are not comparable across depths). No run produced by
+  this repository's `score` is affected — they all record the current
+  depth. (EV-19)
+
 ## [0.4.0] - 2026-09-25
 
 ### Changed

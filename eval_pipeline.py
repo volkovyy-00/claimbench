@@ -1095,11 +1095,18 @@ def load_run(run_id: str, runs_dir: str = "eval_runs") -> Run:
 
 
 def check_comparable(run: Run, baseline: Run) -> None:
-    """Refuses to compare runs measured with different rulers: the golden set
-    and the embedding model must match. The phrase config is expected to
-    differ — it is the phrase lever. Method and k are compared within one
-    run, never across runs."""
+    """Refuses to compare runs measured with different rulers: the golden
+    set, the embedding model and the retrieval depth must match. Depth is
+    part of the ruler because RRF fuses the two depth-cut lists — a chunk
+    inside both lists at one depth may be inside neither at another, so
+    "both"'s top k differs between depths even at the same k. The phrase
+    config is expected to differ — it is the phrase lever. Method and k are
+    compared within one run, never across runs."""
     problems = []
+    if run.meta.get("depth") != baseline.meta.get("depth"):
+        problems.append(f"{run.run_id} was scored at retrieval depth {run.meta.get('depth')}, "
+                        f"{baseline.run_id} at {baseline.meta.get('depth')} — not comparable: the combined "
+                        f"method's top k depends on the depth the fused lists were cut to")
     if run.meta["golden_hash"] != baseline.meta["golden_hash"]:
         problems.append(f"{run.run_id} and {baseline.run_id} were scored against different golden sets — not comparable")
     if run.meta["embedding_model"] != baseline.meta["embedding_model"]:
@@ -1118,66 +1125,138 @@ def check_comparable(run: Run, baseline: Run) -> None:
 # verifiable claim, and a re-review page listing every candidate (the same
 # for every method and k, so one file per run). Written from run records
 # only: no external asset, no script, opens with no network — a folded quote
-# is plain HTML <details>. Every percentage carries its counts. The
+# is plain HTML <details>. Every percentage carries its counts — except a
+# heading's recall, a mean of per-claim fractions with no single (x/y),
+# which names what it averages instead (_heading_counts). The
 # unverifiable count never appears without the re-review sentence beside it
-# (spec: "Unverifiable, and its honesty check"). Precision, macro recall and
-# MRR stay in metrics.parquet; no page shows them.
+# (spec: "Unverifiable, and its honesty check"). Precision and MRR stay in
+# metrics.parquet; no page shows them. The claims page shows recall averaged
+# per claim (EV-19) — read from the stored metrics rows, never recomputed,
+# and explained on the page in plain words; the summary shows no recall.
 
 # %%
 _METHOD_LABEL = {"dense": "meaning search (dense)", "keyword": "keyword search (BM25)",
                  "both": "both combined (RRF)"}
 _METHOD_COLOR = {"dense": "#2563eb", "keyword": "#d97706", "both": "#059669"}
-_MISS_CATEGORIES = ("found by another method at this depth",
-                    f"found only deeper (by k={_RETRIEVE_DEPTH})",
-                    f"not found by any method within {_RETRIEVE_DEPTH}")
+# The three miss reasons' stable keys — each is also its badge class on
+# the claims page (.badge.other/.deep/.none; "retrieved at k" is .hit,
+# and the piece-level grey .miss is separate on purpose, _piece_badge
+# says why). miss_taxonomy assigns the key; every caption is built from
+# it, so rewording a caption can never break a lookup.
+_MISS_KEYS = ("other", "deep", "none")
+
+
+def _miss_caption(key: str, depth: int) -> str:
+    """A miss key's display text, written from the run's own recorded
+    depth (meta["depth"]), never today's _RETRIEVE_DEPTH, so a run scored
+    under another depth still captions itself correctly."""
+    return {"other": "found by another method at this depth",
+            "deep": f"found only deeper (by k={depth})",
+            "none": f"not found by any method within {depth}"}[key]
 _TABLE_CLOSE = "</table>"
 _CSS = """
-body{font:15px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1f2937;background:#fafaf9;
-     max-width:1040px;margin:0 auto;padding:24px}
-h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px;border-bottom:1px solid #e5e7eb;padding-bottom:4px}
-h3{font-size:15px;margin:20px 0 6px}
-.sub{color:#6b7280;margin:0 0 12px}.frame{background:#eef2ff;border-left:4px solid #6366f1;padding:8px 12px}
-.nav{margin:0 0 12px}.nav a,.nav b{margin-right:16px}
-.tiles{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}.tile{background:#fff;border:1px solid #e5e7eb;
+/* Shared by the three pages; colour tokens on :root (light only). The
+   summary shares the tokens, sticky nav and folded-summary styling by
+   design (EV-19: shared styling, content and order unchanged); only
+   span.quote pins its traced examples to the pre-EV-19 inline look. The
+   claim, piece, badge, rank, toc and passage classes serve only the
+   claims and re-review pages. */
+:root{--bg:#fafaf9;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--line2:#d1d5db;--head:#f3f4f6;
+     --accent:#6366f1;--dense:#2563eb;--keyword:#d97706;--both:#059669;
+     --hit:#166534;--hit-bg:#dcfce7;--other:#1e40af;--other-bg:#dbeafe;--deep:#92400e;--deep-bg:#fef3c7;
+     --none:#991b1b;--none-bg:#fee2e2}
+a{color:var(--dense)}
+body{font:15px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);
+     max-width:1040px;margin:0 auto;padding:0 24px 48px}
+h1{font-size:24px;margin:24px 0 4px}
+h2{font-size:18px;margin:36px 0 8px;border-bottom:1px solid var(--line);padding-bottom:4px;scroll-margin-top:56px}
+h3{font-size:15px;margin:20px 0 6px;scroll-margin-top:56px}
+.cnt{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px}
+.sub{color:var(--muted);margin:0 0 12px}.frame{background:var(--other-bg);border-left:4px solid var(--accent);padding:8px 12px}
+.note{background:var(--deep-bg);border-left:4px solid var(--keyword);padding:8px 12px}
+/* one line always (scrolls sideways if long): headings reserve 56px of scroll-margin, a wrapped nav would be taller */
+.nav{position:sticky;top:0;z-index:1;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 0;margin:0 0 12px;
+     white-space:nowrap;overflow-x:auto}
+.nav a,.nav b{margin-right:16px}.nav .cnt{margin-left:0}
+.toc{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 16px;margin:12px 0 24px;
+     display:flex;flex-wrap:wrap;gap:4px 32px}
+.toc ul{list-style:none;margin:4px 0 0;padding:0}.toc li{padding:1px 0}
+.tiles{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}.tile{background:var(--card);border:1px solid var(--line);
      border-radius:8px;padding:12px 16px;min-width:180px}.tile .v{font-size:26px;font-weight:600}
-.tile .l{color:#6b7280;font-size:13px}.delta{font-size:13px;color:#059669}.delta.neg{color:#dc2626}
-.note{background:#fffbeb;border-left:4px solid #f59e0b;padding:8px 12px}
-table{border-collapse:collapse;width:100%;font-size:13px;background:#fff}
-th,td{border:1px solid #d1d5db;padding:4px 8px;text-align:left;vertical-align:top}
-th{background:#f3f4f6}.bar{background:#e5e7eb;height:10px;width:160px;display:inline-block;vertical-align:middle}
-.bar span{display:block;height:10px;background:#2563eb}.quote{color:#374151;font-style:italic;margin:4px 0}
+.tile .l{color:var(--muted);font-size:13px}.delta{font-size:13px;color:var(--both)}.delta.neg{color:var(--none)}
+table{border-collapse:collapse;width:100%;font-size:13px;background:var(--card)}
+th,td{border:1px solid var(--line2);padding:4px 8px;text-align:left;vertical-align:top}
+th{background:var(--head)}.bar{background:var(--line);height:10px;width:160px;display:inline-block;vertical-align:middle}
+.bar span{display:block;height:10px;background:var(--dense)}
 .scroll{overflow-x:auto}
-.claim{background:#fff;border-bottom:1px solid #d1d5db;padding:8px 12px}.claim p{margin:0 0 4px}
-.piece{border-top:1px dashed #e5e7eb;padding:4px 0 4px 16px}
-details summary{cursor:pointer;color:#4b5563}
+/* one claim: number column + body; :target highlights a claim reached by link */
+.claim{display:grid;grid-template-columns:2.6em minmax(0,1fr);background:var(--card);border:1px solid var(--line);
+     border-radius:8px;padding:12px 14px 10px 10px;margin:0 0 10px;scroll-margin-top:56px}
+.claim:target{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.n{color:var(--muted);font-size:13px;padding-top:3px}
+.n a{color:inherit;text-decoration:none}.n a:hover{text-decoration:underline}
+.text{margin:0 0 6px;font-size:15px}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 6px;font-size:13px;color:var(--muted)}
+.tag{border:1px solid var(--line2);border-radius:4px;padding:0 6px;font-size:12px;color:var(--muted)}
+.badge{border-radius:4px;padding:1px 8px;font-size:12px;font-weight:600}
+.badge.hit{color:var(--hit);background:var(--hit-bg)}.badge.other{color:var(--other);background:var(--other-bg)}
+.badge.deep{color:var(--deep);background:var(--deep-bg)}.badge.none{color:var(--none);background:var(--none-bg)}
+.badge.miss{color:var(--muted);background:var(--head)}
+/* rank chips: one per method, method colour, dashed when never within the retrieval depth, ring on the scored method */
+.rank{font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;border:1px solid currentColor;border-radius:999px;padding:0 8px}
+.rank.dense{color:var(--dense)}.rank.keyword{color:var(--keyword)}.rank.both{color:var(--both)}
+.rank.nf{color:var(--muted);border-style:dashed}.rank.cur{box-shadow:0 0 0 2px var(--line2)}
+/* one line, tail clipped: keeps a long chunk id from pushing the preview onto a second line; display stays
+   list-item so the disclosure triangle survives (a flex summary would drop it) */
+details summary{cursor:pointer;color:var(--muted);font-size:13px;padding:2px 0;white-space:nowrap;overflow:hidden;
+     text-overflow:ellipsis}
+details summary:hover{color:var(--ink)}
+.piece{border-top:1px dashed var(--line);padding:8px 0 4px 0}
+.piece .meta{margin-bottom:2px}.piece .meta b{color:var(--ink)}
+/* the summary's traced examples (span, pre-EV-19 look) vs the claims page's quotes (blockquote): same class, split
+   by element so the claims-page block layout cannot restyle the summary */
+span.quote{color:#374151;font-style:italic;margin:4px 0}
+blockquote.quote{margin:4px 0 6px 12px;padding:0 0 0 10px;border-left:3px solid var(--line2);white-space:pre-wrap;
+     font-variant-numeric:tabular-nums;font-size:13px;line-height:1.45}
+.quote code,summary code{font:12px ui-monospace,Menlo,Consolas,monospace;color:var(--muted)}
+/* a re-review passage: line breaks kept, capped height, scroll inside */
+.passage{white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums;
+     margin:6px 0 10px;padding:8px 10px;max-height:20em;overflow:auto;background:var(--bg);
+     border:1px solid var(--line);border-radius:6px}
+.score{font:600 12px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--ink);background:var(--head);border-radius:4px;
+     padding:0 6px;margin-right:6px}
+.preview{margin-left:8px}
+details[open]>summary .preview{display:none}
+@media (max-width:640px){.preview{display:none}.claim{grid-template-columns:2em minmax(0,1fr);padding:10px}}
 """
 
 
 def miss_taxonomy(run: Run, method: str, k: int) -> pd.DataFrame:
     """
-    One row per verifiable claim NOT covered at (method, k), with why:
-      - "found by another method at this depth": another method covers it at k;
-      - "found only deeper (by k=_RETRIEVE_DEPTH)": no method at k, some
-        method by k=_RETRIEVE_DEPTH;
-      - "not found by any method within _RETRIEVE_DEPTH".
+    One row per verifiable claim NOT covered at (method, k), with why —
+    the stable `key` (_MISS_KEYS) plus its `category` caption
+    (_miss_caption at run.meta["depth"]), hit-tested by _within_k so this
+    and the claims page's piece counts share one rule.
     """
     if run.claim_hits.empty:
-        return pd.DataFrame(columns=["claim_id", "bucket", "category"])
+        return pd.DataFrame(columns=["claim_id", "bucket", "category", "key"])
+    depth = run.meta["depth"]
     first = (run.claim_hits.groupby(["claim_id", "method"])["best_rank"].min()
              .unstack("method").reindex(columns=list(_RETRIEVAL_METHODS)))
     buckets = run.claim_hits.groupby("claim_id")["bucket"].first()
     rows = []
     for claim_id, ranks in first.iterrows():
-        if ranks[method] <= k:
+        if _within_k(ranks[method], k):
             continue
-        if any(ranks[m] <= k for m in _RETRIEVAL_METHODS if m != method):
-            category = _MISS_CATEGORIES[0]
-        elif (ranks <= _RETRIEVE_DEPTH).any():
-            category = _MISS_CATEGORIES[1]
+        if any(_within_k(ranks[m], k) for m in _RETRIEVAL_METHODS if m != method):
+            key = "other"
+        elif any(_within_k(r, depth) for r in ranks):
+            key = "deep"
         else:
-            category = _MISS_CATEGORIES[2]
-        rows.append({"claim_id": claim_id, "bucket": buckets[claim_id], "category": category})
-    return pd.DataFrame(rows, columns=["claim_id", "bucket", "category"])
+            key = "none"
+        rows.append({"claim_id": claim_id, "bucket": buckets[claim_id],
+                     "category": _miss_caption(key, depth), "key": key})
+    return pd.DataFrame(rows, columns=["claim_id", "bucket", "category", "key"])
 
 
 def _e(value) -> str:
@@ -1190,12 +1269,20 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}{'' if n == 1 else 's'}"
 
 
-def _check_view(method: str, k: int) -> None:
-    """Refuses a method or k a run does not hold (ValueError)."""
+def _check_view(run: Run, method: str, k: int) -> None:
+    """Refuses a method the run does not hold, or a k beyond the depth the
+    run was scored to (ValueError), and a run that records no depth at all
+    (EvalInputError): the pages caption every rank from meta["depth"] —
+    ">10", "not within 10", the miss categories — so a run scored under
+    another _RETRIEVE_DEPTH still reports, wearing its own depth."""
     if method not in _RETRIEVAL_METHODS:
         raise ValueError(f"method {method!r}: use one of {', '.join(_RETRIEVAL_METHODS)}")
-    if not 1 <= k <= _RETRIEVE_DEPTH:
-        raise ValueError(f"k={k}: use 1..{_RETRIEVE_DEPTH}")
+    depth = run.meta.get("depth")
+    if depth is None:
+        raise EvalInputError([f"{run.run_id}: meta.json records no retrieval depth, so no rank can be "
+                              f"captioned — score the run again: python eval_pipeline.py score"])
+    if not 1 <= k <= depth:
+        raise ValueError(f"k={k}: use 1..{depth}, the depth this run was scored to")
 
 
 def _page_names(method: str, k: int, baseline_id: str | None) -> dict[str, str]:
@@ -1207,18 +1294,47 @@ def _page_names(method: str, k: int, baseline_id: str | None) -> dict[str, str]:
     return {"summary": f"{stem}.html", "claims": f"{stem}_claims.html", "rereview": "report_rereview.html"}
 
 
-def _nav(run: Run, pages: dict[str, str] | None, current: str) -> str:
-    """The link line between the three pages, the current one in bold, the
-    others linked by relative name so a copied run folder keeps working.
-    Empty when `pages` is None — the notebook's inline copy, where a relative
-    link resolves against the notebook, not the run folder, and so is dead."""
-    if pages is None:
+def _memo_anchor(memo_id: str) -> str:
+    """The one spelling of a memo heading's anchor id, shared by the jump
+    line, both tables of contents and both pages' memo headings."""
+    return f"memo-{_e(memo_id)}"
+
+
+def _memo_heading_and_toc(memo_id: str, heading_cnt: str, toc_cnt: str, items: str = "") -> tuple[str, str]:
+    """One memo's <h2> heading and its table-of-contents entry, built as a
+    pair around _memo_anchor so the two pages' markup cannot drift apart;
+    `items` is the claims page's nested <ul> of section links."""
+    heading = f'<h2 id="{_memo_anchor(memo_id)}">{_e(memo_id)} <span class="cnt">{heading_cnt}</span></h2>'
+    entry = (f'<div><b><a href="#{_memo_anchor(memo_id)}">{_e(memo_id)}</a></b> '
+             f'<span class="cnt">{toc_cnt}</span>{items}</div>')
+    return heading, entry
+
+
+def _jump_line(memo_ids: list[str]) -> str:
+    """'Jump to:' links to each memo's heading (_memo_anchor), for a page's
+    sticky link line. Empty when there is no memo to link."""
+    if not memo_ids:
         return ""
+    links = "".join(f'<a href="#{_memo_anchor(m)}">{_e(m)}</a>' for m in memo_ids)
+    return f'<span class="cnt">Jump to: {links}</span>'
+
+
+def _nav(run: Run, pages: dict[str, str] | None, current: str, jump: str = "") -> str:
+    """The link line between the three pages, the current one in bold, the
+    others linked by relative name so a copied run folder keeps working;
+    `jump` (a _jump_line) appends that page's own memo links. With `pages`
+    None only the current page's bold label and the jump links are shown —
+    the re-review page, which links to no other page — and without a jump
+    line either, nothing at all: the notebook's inline copy, where a
+    relative link resolves against the notebook, not the run folder, and so
+    is dead."""
     verifiable = int((run.claims["bucket"] != "UNVERIFIABLE").sum())
     labels = {"summary": "Summary", "claims": f"Claims ({verifiable} verifiable)",
               "rereview": f"Re-review ({_count(len(run.candidates), 'passage')})"}
+    if pages is None:
+        return f'<p class="nav"><b>{labels[current]}</b>{jump}</p>' if jump else ""
     items = [f"<b>{labels[p]}</b>" if p == current else f'<a href="{_e(pages[p])}">{labels[p]}</a>' for p in labels]
-    return f'<p class="nav">{"".join(items)}</p>'
+    return f'<p class="nav">{"".join(items)}{jump}</p>'
 
 
 def _view_line(run: Run, method: str, k: int, baseline: Run | None = None) -> str:
@@ -1258,20 +1374,21 @@ def _delta(current, base) -> str:
 
 
 def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
-    """Coverage@k, k = 1.._RETRIEVE_DEPTH, one line per method (the chosen
-    one heavier), a marker at k, and the baseline's line for the chosen
-    method dashed."""
+    """Coverage@k, k = 1..the run's recorded depth, one line per method
+    (the chosen one heavier), a marker at k, and the baseline's line for
+    the chosen method dashed (check_comparable holds the depths equal)."""
     width, height, left, right, top, bottom = 640, 260, 48, 16, 16, 36
+    depth = run.meta["depth"]
 
     def x(kk):
-        return left + (kk - 1) * (width - left - right) / (_RETRIEVE_DEPTH - 1)
+        return left + (kk - 1) * (width - left - right) / max(depth - 1, 1)   # depth 1: a single column, no /0
 
     def y(v):
         return top + (1 - v) * (height - top - bottom)
 
     def points(metrics, m):
         out = []
-        for kk in _K_VALUES:
+        for kk in range(1, depth + 1):
             row = _metric_row(metrics, "all", "ALL", "ALL", m, kk)
             if row is not None and not pd.isna(row.coverage):
                 out.append(f"{x(kk):.1f},{y(row.coverage):.1f}")
@@ -1283,7 +1400,7 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
         parts.append(f'<line x1="{left}" x2="{width - right}" y1="{y(v):.1f}" y2="{y(v):.1f}" stroke="#e5e7eb"/>'
                      f'<text x="{left - 6}" y="{y(v) + 4:.1f}" font-size="11" text-anchor="end" fill="#6b7280">'
                      f'{int(v * 100)}%</text>')
-    for kk in sorted({1, *range(5, _RETRIEVE_DEPTH + 1, 5), _RETRIEVE_DEPTH}):
+    for kk in sorted({1, *range(5, depth + 1, 5), depth}):
         parts.append(f'<text x="{x(kk):.1f}" y="{height - bottom + 16}" font-size="11" text-anchor="middle" '
                      f'fill="#6b7280">{kk}</text>')
     parts.append(f'<text x="{(left + width - right) / 2:.1f}" y="{height - 4}" font-size="11" text-anchor="middle" '
@@ -1345,11 +1462,11 @@ def _traced_examples(run: Run, method: str, k: int) -> str:
     table = ["<table><tr><th>memo</th><th>claim</th><th>evidence a human confirmed</th><th>retrieved?</th></tr>"]
     for memo_id in run.meta["memos"]:
         verifiable = run.claims[(run.claims["memo_id"] == memo_id) & (run.claims["bucket"] != "UNVERIFIABLE")]
-        found = [c for c in verifiable["claim_id"] if best.loc[c, "best_rank"] <= k]
-        missed = [c for c in verifiable["claim_id"] if not best.loc[c, "best_rank"] <= k]
+        found = [c for c in verifiable["claim_id"] if _within_k(best.loc[c, "best_rank"], k)]
+        missed = [c for c in verifiable["claim_id"] if not _within_k(best.loc[c, "best_rank"], k)]
         for claim_id in found[:1] + missed[:1]:
             b = best.loc[claim_id]
-            if b.best_rank <= k:
+            if _within_k(b.best_rank, k):
                 golden = b.best_golden_chunk_id
                 quote = quote_of.loc[(claim_id, golden)]
                 g, r = _chunk_index_of(golden), _chunk_index_of(b.best_chunk_id)
@@ -1379,7 +1496,7 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
     changes against a baseline run (check_comparable must pass). `pages`
     names the three files to link between (_page_names); None leaves the
     link line out. Returns the HTML."""
-    _check_view(method, k)
+    _check_view(run, method, k)
     if baseline is not None:
         check_comparable(run, baseline)
 
@@ -1450,9 +1567,10 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
     out.append(f"<h2>Why the missed claims were missed (k = {k})</h2>")
     misses = miss_taxonomy(run, method, k)
     table = ["<table><tr><th>reason</th><th>extractive</th><th>synthesized</th></tr>"]
-    for category in _MISS_CATEGORIES:
-        rows = misses[misses["category"] == category]
-        table.append(f"<tr><td>{_e(category)}</td><td>{int((rows['bucket'] == 'EXTRACTIVE').sum())}</td>"
+    for key in _MISS_KEYS:
+        rows = misses[misses["key"] == key]
+        table.append(f"<tr><td>{_e(_miss_caption(key, run.meta['depth']))}</td>"
+                     f"<td>{int((rows['bucket'] == 'EXTRACTIVE').sum())}</td>"
                      f"<td>{int((rows['bucket'] == 'SYNTHESIZED').sum())}</td></tr>")
     table.append(_TABLE_CLOSE)
     out.append("".join(table))
@@ -1498,99 +1616,208 @@ def _evidence_pieces(run: Run) -> dict[str, list[list]]:
     return pieces
 
 
-def _rank_line(ranks: dict[str, float]) -> str:
-    """'dense: rank 2 · keyword: not found · both: rank 3' — each method's
-    best rank within _RETRIEVE_DEPTH, NaN meaning not found."""
-    return " · ".join(f"{m}: " + ("not found" if pd.isna(ranks[m]) else f"rank {int(ranks[m])}")
-                      for m in _RETRIEVAL_METHODS)
+def _rank_chips(ranks: dict[str, float], method: str, depth: int) -> str:
+    """One chip per method — 'dense 2', or a dashed 'dense >20' (class nf)
+    when the method never ranks it within the run's recorded depth — with
+    a ring (class cur) on the method this page scores."""
+    chips = []
+    for m in _RETRIEVAL_METHODS:
+        rank = ranks[m]
+        cls = f"rank {m}" + (" cur" if m == method else "") + (" nf" if pd.isna(rank) else "")
+        label = f"{m} >{depth}" if pd.isna(rank) else f"{m} {int(rank)}"
+        chips.append(f'<span class="{cls}">{_e(label)}</span>')
+    return "".join(chips)
 
 
-def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: str | None, k: int) -> str:
-    """One claim on the claims page: the headline (number, text, type, best
-    rank per method, retrieved at k or why not), then — folded — each piece
-    of evidence with its own ranks and its quotes (_quotes: a human-added
-    row can hold several)."""
+def _within_k(rank, k: int) -> bool:
+    """True when a best rank places within the page's k (NaN — never within
+    the run's depth — does not). The one hit rule behind a piece's badge,
+    its claim's 'X of Y pieces retrieved' count, miss_taxonomy's buckets and
+    the traced examples, so they cannot drift."""
+    return bool(pd.notna(rank) and rank <= k)
+
+
+def _piece_badge(rank: float, k: int, depth: int) -> str:
+    """The scored method's verdict on one piece of evidence: green
+    'retrieved' within k, otherwise grey — 'rank N' when within the run's
+    recorded depth, 'not within <depth>' when not. Grey on purpose, never
+    the claim-level amber or red: those mean NO method found the claim, and
+    a piece another method finds at this depth would wear the wrong meaning."""
+    if _within_k(rank, k):
+        return '<span class="badge hit">retrieved</span>'
+    label = f"rank {int(rank)}" if pd.notna(rank) else f"not within {depth}"
+    return f'<span class="badge miss">{label}</span>'
+
+
+def _heading_counts(row, k: int) -> str:
+    """A memo or section heading's counts — '3 claims · 67% (2/3) retrieved
+    at k = 2 · recall 50%, the mean of each claim's piece recall' — read
+    from its metrics row (_metric_row), never recomputed, so every heading
+    matches the run's metrics.parquet. The recall carries no (x/y): a mean
+    of per-claim fractions has none, so it names what it averages, over the
+    claim count that opens the line."""
+    return (f"{_count(int(row.claims), 'claim')} · {_pct(row.covered, row.claims)} retrieved at k = {k} · "
+            f"recall {_round_half_away(100 * row.recall_macro)}%, the mean of each claim's piece recall")
+
+
+def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: str | None,
+                 method: str, k: int, depth: int) -> str:
+    """One claim on the claims page: its number, text and type, its status
+    badge (reason None means retrieved; otherwise the miss_taxonomy key,
+    which is the badge class, captioned by _miss_caption), one rank chip
+    per method, and its recall at k with
+    counts, then — folded — each piece of evidence with its own badge and
+    chips and its quotes (_quotes: a human-added row can hold several)."""
     piece_ranks = [{m: ranks[(claim.claim_id, g, m)] for m in _RETRIEVAL_METHODS} for g in range(len(pieces))]
     best = {m: min((r[m] for r in piece_ranks if pd.notna(r[m])), default=np.nan) for m in _RETRIEVAL_METHODS}
-    outcome = f"retrieved at k = {k}" if reason is None else f"missed at k = {k}: {reason}"
+    cls = "hit" if reason is None else reason
+    status = (f"retrieved at k = {k}" if reason is None
+              else f"missed at k = {k} — {_miss_caption(reason, depth)}")
+    hit = sum(1 for r in piece_ranks if _within_k(r[method], k))
     folded, n_quotes = [], 0
     for i, (piece, piece_rank) in enumerate(zip(pieces, piece_ranks), start=1):
-        quotes = [f'<p class="quote">{_e(q)} ({_e(row.chunk_id)})</p>' for row in piece for q in _quotes(row)]
+        quotes = [f'<blockquote class="quote">{_e(q)} <code>{_e(row.chunk_id)}</code></blockquote>'
+                  for row in piece for q in _quotes(row)]
         n_quotes += len(quotes)
-        folded.append(f'<div class="piece"><p class="sub">piece {i} — {_rank_line(piece_rank)}</p>'
-                      f'{"".join(quotes)}</div>')
-    return (f'<div class="claim"><p><b>{number}.</b> {_e(claim.claim_text)} '
-            f'<span class="sub">({_e(claim.bucket.lower())})</span></p>'
-            f'<p class="sub">{_rank_line(best)} — {_e(outcome)}</p>'
+        folded.append(f'<div class="piece"><p class="meta"><b>Piece {i}</b>{_piece_badge(piece_rank[method], k, depth)}'
+                      f'{_rank_chips(piece_rank, method, depth)}</p>{"".join(quotes)}</div>')
+    return (f'<article class="claim" id="c{number}"><div class="n"><a href="#c{number}">{number}</a></div><div>'
+            f'<p class="text">{_e(claim.claim_text)} <span class="tag">{_e(claim.bucket.lower())}</span></p>'
+            f'<p class="meta"><span class="badge {cls}">{_e(status)}</span>{_rank_chips(best, method, depth)}'
+            f'<span>{hit} of {_count(len(pieces), "piece")} retrieved — {_pct(hit, len(pieces))}</span></p>'
             f'<details><summary>{_count(len(pieces), "piece")} of evidence, {_count(n_quotes, "quote")}</summary>'
-            f'{"".join(folded)}</details></div>')
+            f'{"".join(folded)}</details></div></article>')
 
 
 def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: dict[str, str] | None = None) -> str:
     """The claims page for one run at (method, k): every verifiable claim,
     numbered, grouped by memo and section in claims-file order (the order
-    the memo reads, the same for every method and k). Each shows its best
-    rank per method, whether it was retrieved at (method, k) or why not
-    (miss_taxonomy), and — folded — each piece of evidence with its own
-    rank per method and its confirmed quotes. Quotes the pipeline groups as
-    one piece (decision 1) share its rank. No baseline changes here; the
-    summary carries them. `pages` as in render_summary. Returns the HTML."""
-    _check_view(method, k)
+    the memo reads, the same for every method and k). Each claim wears its
+    status at (method, k) as one of four badges (retrieved, or its
+    miss_taxonomy reason), one rank chip per method, and its recall at k
+    with counts; folded under it, each piece of evidence with its own badge,
+    chips and confirmed quotes. Quotes the pipeline groups as one piece
+    (decision 1) share its rank. Memo and section headings carry claim
+    coverage and per-claim recall read from the run's metrics
+    (_heading_counts), a table of contents links every memo and section
+    heading, and the page explains once, in plain words, what recall counts
+    (decision 19's duplicated-document residual). No baseline changes here;
+    the summary carries them. `pages` names the files to link between, as in
+    render_summary — but None keeps this page's bold label and Jump-to links
+    (_nav), leaving out only the links to the other pages. Returns the HTML."""
+    _check_view(run, method, k)
+    depth = run.meta["depth"]
     pieces = _evidence_pieces(run)
     ranks = run.claim_hits.set_index(["claim_id", "group", "method"])["best_rank"].to_dict()
     misses = miss_taxonomy(run, method, k)
-    reason_of = dict(zip(misses["claim_id"], misses["category"]))
+    reason_of = dict(zip(misses["claim_id"], misses["key"]))
     verifiable = run.claims[run.claims["bucket"] != "UNVERIFIABLE"]
+
+    def counts(scope: str, memo_id: str, section: str = "ALL") -> str:
+        row = _metric_row(run.metrics, scope, memo_id, section, method, k)
+        if row is None:   # metrics.parquet lost rows — damaged, or filtered by hand
+            where = f"{scope} {memo_id}" + (f" {section!r}" if scope == "section" else "")
+            raise EvalInputError([f"{run.run_id}: no metrics row for {where} at method={method}, "
+                                  f"k={k} — the run's metrics table is incomplete; score the run again: "
+                                  f"python eval_pipeline.py score"])
+        return _heading_counts(row, k)
+
     legend = ", ".join(f"{m} = {_METHOD_LABEL[m]}" for m in _RETRIEVAL_METHODS)
-    out = [f"<h1>Claims — {_e(run.run_id)}</h1>", _view_line(run, method, k), _nav(run, pages, "claims"),
-           f'<p class="sub">Every verifiable claim ({len(verifiable)}), with the evidence a human confirmed and '
-           f'the best rank at which each search method retrieved it within the top {_RETRIEVE_DEPTH} passages '
-           f'per search phrase ({_e(legend)}). Quotes the pipeline treats as one piece of evidence share its '
-           f'rank.</p>']
+    intro = (
+        f'<p class="sub">Every verifiable claim ({len(verifiable)}), with the evidence a human confirmed and '
+        f'the best rank at which each search method retrieved it within the top {depth} passages '
+        f'per search phrase ({_e(legend)}). A chip reads <span class="rank dense">dense 2</span> = found at '
+        f'rank 2; <span class="rank keyword nf">keyword &gt;{depth}</span> = not within the top '
+        f'{depth}; the ringed chip is the method this page scores. A piece of evidence counts as '
+        f'retrieved when that method ranks it within k = {k}; quotes the pipeline groups as one piece share '
+        f'its rank. Recall counts every piece a claim lists: when the review lists alternative or duplicate '
+        f'sources for the same fact, each counts, so recall understates how often the fact itself was found; '
+        f'claim coverage does not.</p>')
+    toc, bodies, memo_ids = [], [], []
     number = 0
     for memo_id in run.meta["memos"]:
         memo_claims = verifiable[verifiable["memo_id"] == memo_id]
         if memo_claims.empty:
             continue
-        out.append(f"<h2>{_e(memo_id)}</h2>")
-        for section, claims in memo_claims.groupby("section", sort=False):
-            out.append(f"<h3>{_e(section)}</h3>")
+        memo_ids.append(memo_id)
+        memo_counts = counts("memo", memo_id)
+        items, sections = [], []
+        for i, (section, claims) in enumerate(memo_claims.groupby("section", sort=False), start=1):
+            section_id = f"s-{_e(memo_id)}-{i}"
+            section_counts = counts("section", memo_id, str(section))
+            items.append(f'<li><a href="#{section_id}">{_e(section)}</a> '
+                         f'<span class="cnt">{section_counts}</span></li>')
+            sections.append(f'<h3 id="{section_id}">{_e(section)} <span class="cnt">{section_counts}</span></h3>')
             for claim in claims.itertuples(index=False):
                 number += 1
-                out.append(_claim_block(number, claim, pieces[claim.claim_id], ranks,
-                                        reason_of.get(claim.claim_id), k))
+                sections.append(_claim_block(number, claim, pieces[claim.claim_id], ranks,
+                                             reason_of.get(claim.claim_id), method, k, depth))
+        heading, entry = _memo_heading_and_toc(memo_id, memo_counts, memo_counts, f'<ul>{"".join(items)}</ul>')
+        bodies.extend([heading, *sections])
+        toc.append(entry)
+    out = [f"<h1>Claims — {_e(run.run_id)}</h1>", _view_line(run, method, k),
+           _nav(run, pages, "claims", _jump_line(memo_ids)), intro,
+           f'<nav class="toc">{"".join(toc)}</nav>', *bodies]
     return _page(f"Claims {run.run_id}", out)
+
+
+_PREVIEW_CHARS = 200
+
+
+def _preview(text) -> str:
+    """The folded one-line preview of a passage: whitespace collapsed to
+    single spaces (many passages open with a table header), cut to
+    _PREVIEW_CHARS characters, and only then escaped, so the cut cannot fall
+    inside an HTML entity. CSS clips it to its line with an ellipsis; no
+    literal '…' enters the page (the full text is always right below)."""
+    return _e(" ".join(str(text).split())[:_PREVIEW_CHARS])
 
 
 def render_rereview(run: Run) -> str:
     """The re-review page: every candidate (rereview_candidates), none cut,
     grouped by memo and under its claim — claims numbered, the one with the
-    strongest passage first, its passages strongest first — each passage
-    folded under a one-line header (score · passage id) with its full text.
-    The same for every method and k, so one file per run (_page_names). It
-    links nowhere: it cannot know which summary it was opened from, and the
-    browser's Back button returns there. Returns the HTML."""
-    out = [f"<h1>Re-review candidates — {_e(run.run_id)}</h1>",
-           f'<p class="sub">{_e(", ".join(run.meta["memos"]))} · the same for every search method and k</p>',
-           _unverifiable_note(run, "below"),
-           "<p>A worklist for a person, not a count of errors: for each claim, the passages meaning-based search "
-           "offers for its own text that the review never showed a human, strongest first. Only a person can "
-           "say whether one supports the claim.</p>"]
+    strongest passage first, its passages strongest first. A folded passage
+    shows its score, its passage id and a one-line preview of its text
+    (_preview); opened, the full text keeps its line breaks and a long one
+    scrolls inside its own box (.passage). A table of contents links every
+    memo heading. The same for every method and k, so one file per run
+    (_page_names). It links to no other page: it cannot know which summary
+    it was opened from, and the browser's Back button returns there. Returns
+    the HTML."""
+    toc, bodies, memo_ids = [], [], []
     number = 0
     for memo_id in run.meta["memos"]:
         memo = run.candidates[run.candidates["memo_id"] == memo_id]
         if memo.empty:
             continue
-        out.append(f"<h2>{_e(memo_id)}</h2>")
+        memo_ids.append(memo_id)
+        memo_counts = f'{_count(memo["claim_id"].nunique(), "claim")} · {_count(len(memo), "passage")}'
+        heading, entry = _memo_heading_and_toc(memo_id, f"{memo_counts} · strongest passage first",
+                                               f'{memo_counts} · strongest {memo["score"].max():.3f}')
+        toc.append(entry)
+        bodies.append(heading)
         # stored strongest first, so each claim first appears at its strongest passage
         for _, group in memo.groupby("claim_id", sort=False):
             number += 1
             passages = list(group.itertuples(index=False))
-            folded = "".join(f'<details><summary>{p.score:.3f} · {_e(p.chunk_id)}</summary>'
-                             f'<p class="quote">{_e(p.chunk_text)}</p></details>' for p in passages)
-            out.append(f'<div class="claim"><p><b>{number}.</b> {_e(passages[0].claim_text)}</p>'
-                       f'<p class="sub">{_e(passages[0].section)} · {_count(len(passages), "passage")}</p>'
-                       f"{folded}</div>")
+            folded = "".join(
+                f'<details><summary><span class="score">{p.score:.3f}</span><code>{_e(p.chunk_id)}</code>'
+                f'<span class="preview">{_preview(p.chunk_text)}</span></summary>'
+                f'<pre class="passage">{_e(p.chunk_text)}</pre></details>' for p in passages)
+            bodies.append(f'<article class="claim" id="r{number}"><div class="n"><a href="#r{number}">{number}</a></div><div>'
+                          f'<p class="text">{_e(passages[0].claim_text)}</p>'
+                          f'<p class="meta"><span class="tag">{_e(passages[0].section)}</span>'
+                          f'<span>{_count(len(passages), "passage")} · strongest {passages[0].score:.3f}</span></p>'
+                          f'{folded}</div></article>')
+    out = [f"<h1>Re-review candidates — {_e(run.run_id)}</h1>",
+           f'<p class="sub">{_e(", ".join(run.meta["memos"]))} · the same for every search method and k</p>',
+           _nav(run, None, "rereview", _jump_line(memo_ids)),
+           _unverifiable_note(run, "below"),
+           "<p>A worklist for a person, not a count of errors: for each claim, the passages meaning-based search "
+           "offers for its own text that the review never showed a human, strongest first. Only a person can "
+           "say whether one supports the claim. The number beside each passage is its similarity to the claim "
+           "(0–1); open a passage to read it in full.</p>",
+           f'<nav class="toc">{"".join(toc)}</nav>', *bodies]
     return _page(f"Re-review {run.run_id}", out)
 
 
@@ -1657,7 +1884,7 @@ RUN_DEMO_REPORT = False
 if RUN_DEMO_REPORT:
     RUN = None          # None = the latest run
     METHOD = "dense"    # dense | keyword | both
-    K = 5               # passages per search phrase, 1.._RETRIEVE_DEPTH
+    K = 5               # passages per search phrase, 1..the run's scored depth
     BASELINE = None     # a run id to show changes against, or None
     show_report(RUN, method=METHOD, k=K, baseline=BASELINE)
 
@@ -1667,7 +1894,7 @@ if RUN_DEMO_REPORT:
 
 # %%
 _USAGE = ("usage: python eval_pipeline.py score [label] | "
-          f"report <run_id|latest> [baseline_run_id] [--method=dense|keyword|both] [--k=1..{_RETRIEVE_DEPTH}]")
+          "report <run_id|latest> [baseline_run_id] [--method=dense|keyword|both] [--k=N, 1..the run's scored depth]")
 
 
 def _main(argv: list[str]) -> None:

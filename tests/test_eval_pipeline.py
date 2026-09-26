@@ -98,11 +98,14 @@ def _results_rows():
     return rows
 
 
+def _claim_query_row(section, text, rank, chunk_id, score):
+    return {"memo_id": MEMO, "section": section, "claim_id": cid(section, text), "claim_text": text,
+            "doc_id": "d.pdf", "chunk_id": chunk_id, "chunk_text": CHUNKS[chunk_id],
+            "rank": rank, "score": score}
+
+
 def _claim_query_rows():
-    def q(section, text, rank, chunk_id, score):
-        return {"memo_id": MEMO, "section": section, "claim_id": cid(section, text), "claim_text": text,
-                "doc_id": "d.pdf", "chunk_id": chunk_id, "chunk_text": CHUNKS[chunk_id],
-                "rank": rank, "score": score}
+    q = _claim_query_row
     return [
         q(BP, C1, 1, "d.pdf_1", 0.95),
         q(BP, C2, 1, "d.pdf_3", 0.93),
@@ -806,6 +809,22 @@ def _with_second_evidence_row_for_c1():
     _write_reviewed(rows)
 
 
+C6 = "Acme staff hold shares."   # only exists once _with_a_claim_no_method_finds() ran
+
+
+def _with_a_claim_no_method_finds():
+    """A verifiable Ownership claim (C6) whose evidence (d.pdf_4) no method
+    ever retrieves for that section — d.pdf_5, the only golden-adjacent chunk
+    retrieved there, shares no edge text with it — so every best_rank is NaN
+    and its miss reason is the fourth category, "not found by any method
+    within 20". A new claim needs all three inputs: the census, a reviewed
+    row, and a recheck row (load_claim_queries checks every claim has one)."""
+    gsp.write_claims_file(os.path.join("claims", f"{MEMO}.md"), MEMO, "src", {},
+                          [(BP, [C1, C2, C3, C5]), (OWN, [C4, C6])])
+    _write_reviewed(_reviewed_rows() + [_row(OWN, C6, "d.pdf_4", "plants in Ohio", "extractive")])
+    _write_claim_queries(_claim_query_rows() + [_claim_query_row(OWN, C6, 1, "d.pdf_4", 0.4)])
+
+
 def test_report_headline_counts_and_cohort_split(world):
     page = ep.render_summary(_run(), method="dense", k=2)
     assert "67% (2/3)" in page      # claim coverage
@@ -860,6 +879,17 @@ def test_summary_folds_the_traced_quotes(world):
     assert "<details><summary>" in traced
 
 
+def test_summary_quote_keeps_its_own_look(world):
+    # The summary's traced examples use <span class="quote">, styled as
+    # before EV-19 (italic, inline); the claims page's block layout is
+    # scoped to its <blockquote>, so the summary's look never changes.
+    span_rule = ep._CSS[ep._CSS.index("span.quote{"):]
+    assert "font-style:italic" in span_rule[:span_rule.index("}")]
+    block_rule = ep._CSS[ep._CSS.index("blockquote.quote{"):]
+    assert "white-space:pre-wrap" in block_rule[:block_rule.index("}")]
+    assert '<span class="quote">' in ep.render_summary(_run(), k=2)
+
+
 def test_summary_leaves_the_candidates_to_the_rereview_page(world):
     page = ep.render_summary(_run())
     assert "Intro page of the annual report." not in page   # a candidate passage
@@ -877,31 +907,231 @@ def test_claims_page_leaves_out_unverifiable_claims(world):
     assert C5 not in page
 
 
-def test_claims_page_headline_gives_each_methods_best_rank(world):
+def test_claims_page_headline_gives_each_methods_best_rank_as_chips(world):
     page = ep.render_claims(_run(), k=2)
-    assert "dense: rank 2 · keyword: not found · both: rank 3" in page         # C1
-    assert "dense: not found · keyword: rank 1 · both: rank 2" in page         # C2
+    # C1: the scored method's chip ringed (cur), a method that never ranks it within 20 dashed (nf)
+    assert ('<span class="rank dense cur">dense 2</span><span class="rank keyword nf">keyword &gt;20</span>'
+            '<span class="rank both">both 3</span>') in page
+    # C2
+    assert ('<span class="rank dense cur nf">dense &gt;20</span><span class="rank keyword">keyword 1</span>'
+            '<span class="rank both">both 2</span>') in page
+
+
+def test_claim_status_classes_are_four_and_distinct(world):
+    # The stable miss keys ARE the badge classes ("hit" beside them — four
+    # in all); the display captions are built from key + depth, so a
+    # caption can be reworded without any text-keyed lookup breaking.
+    assert ep._MISS_KEYS == ("other", "deep", "none")
+    assert ep._miss_caption("deep", 20) == "found only deeper (by k=20)"
+    for cls in ("hit", *ep._MISS_KEYS):
+        assert f".badge.{cls}{{" in ep._CSS
 
 
 def test_claims_page_gives_the_miss_reason_at_the_chosen_k(world):
+    run = _run()
+    page = ep.render_claims(run, k=2)
+    assert '<span class="badge other">missed at k = 2 — found by another method at this depth</span>' in page  # C2
+    assert page.count('<span class="badge hit">retrieved at k = 2</span>') == 2                                # C1, C4
+    page = ep.render_claims(run, k=1)
+    assert page.count('<span class="badge deep">missed at k = 1 — found only deeper (by k=20)</span>') == 2    # C1, C4
+
+
+def test_a_claim_no_method_finds_gets_the_fourth_badge(world):
+    _with_a_claim_no_method_finds()
     page = ep.render_claims(_run(), k=2)
-    assert "missed at k = 2: found by another method at this depth" in page   # C2
-    assert page.count("retrieved at k = 2") == 2                               # C1, C4
+    tail = page[page.index(C6):]     # C6 is the last claim on the page
+    assert '<span class="badge none">missed at k = 2 — not found by any method within 20</span>' in tail
+    assert tail.count('<span class="rank dense cur nf">dense &gt;20</span>') == 2   # headline + its one piece
+    assert '<span class="rank keyword nf">keyword &gt;20</span>' in tail
+    assert '<span class="rank both nf">both &gt;20</span>' in tail
+    assert '<span class="badge miss">not within 20</span>' in tail
+    assert "0 of 1 piece retrieved — 0% (0/1)" in tail
+
+
+def test_claims_page_shows_each_claims_recall_with_counts(world):
+    _with_second_evidence_row_for_c1()
+    page = ep.render_claims(_run(), k=2)
+    assert "1 of 2 pieces retrieved — 50% (1/2)" in page    # C1: d.pdf_7 at rank 5, d.pdf_1 at rank 2
+    assert "0 of 1 piece retrieved — 0% (0/1)" in page      # C2
+    assert "1 of 1 piece retrieved — 100% (1/1)" in page    # C4
+
+
+def test_claims_page_explains_recall_once(world):
+    page = ep.render_claims(_run(), k=2)
+    assert page.count("counts every piece") == 1
+
+
+def test_claims_page_headings_match_the_metrics_rows(world):
+    _with_second_evidence_row_for_c1()
+    run = _run()
+    memo = ep._metric_row(run.metrics, "memo", MEMO, "ALL", "dense", 2)
+    assert (int(memo.covered), int(memo.claims), float(memo.recall_macro)) == (2, 3, 0.5)
+    page = ep.render_claims(run, k=2)
+    # each string appears twice: once on the heading, once in the table of contents
+    assert page.count("3 claims · 67% (2/3) retrieved at k = 2 · recall 50%, the mean of each claim's piece recall") == 2
+    assert page.count("2 claims · 50% (1/2) retrieved at k = 2 · recall 25%, the mean of each claim's piece recall") == 2   # BP
+    assert page.count("1 claim · 100% (1/1) retrieved at k = 2 · recall 100%, the mean of each claim's piece recall") == 2   # OWN
+
+
+def test_claims_page_refuses_a_run_missing_its_metrics_row(world):
+    # A damaged or hand-filtered metrics.parquet leaves a heading with
+    # nothing to read; the page refuses by name instead of crashing
+    # mid-render. (A whole-run depth mismatch is refused earlier, by
+    # _check_view.)
+    run = _run()
+    run.metrics = run.metrics[run.metrics["k"] != 2]
+    with pytest.raises(ep.EvalInputError, match="no metrics row"):
+        ep.render_claims(run, k=2)
+
+
+def test_metrics_row_refusal_names_the_section(world):
+    run = _run()
+    run.metrics = run.metrics[~((run.metrics["scope"] == "section") & (run.metrics["section"] == BP))]
+    with pytest.raises(ep.EvalInputError, match=f"no metrics row for section {MEMO} {BP!r}"):
+        ep.render_claims(run, k=2)
+
+
+@pytest.mark.parametrize("render", ["render_summary", "render_claims"])
+def test_report_speaks_the_runs_own_depth(world, render):
+    # A run scored under another _RETRIEVE_DEPTH stays reportable: every
+    # rank label and miss category reads the depth the run records, not
+    # today's constant. (The fixture's stored ranks all sit within 10, so
+    # trimming the metrics gives a self-consistent depth-10 run.)
+    run = _run()
+    run.meta["depth"] = 10
+    run.metrics = run.metrics[run.metrics["k"] <= 10]
+    page = getattr(ep, render)(run, k=1)   # at k=1, C1 (dense rank 2) is found only deeper
+    assert "found only deeper (by k=10)" in page
+    assert "by k=20" not in page and "&gt;20" not in page
+    with pytest.raises(ValueError, match="use 1..10"):
+        getattr(ep, render)(run, k=15)
+
+
+def test_report_refuses_a_run_with_no_recorded_depth(world):
+    # Without meta["depth"] no rank label can be written.
+    run = _run()
+    del run.meta["depth"]
+    with pytest.raises(ep.EvalInputError, match="no retrieval depth"):
+        ep.render_claims(run, k=2)
+
+
+def test_a_baseline_at_another_depth_is_refused(world):
+    # RRF fuses the two depth-cut lists, so "both"'s top k depends on the
+    # retrieval depth — a cross-depth delta would mix the depth change in
+    # with the phrase change it claims to measure.
+    base = _run("base", NOW)
+    base.meta["depth"] = 10
+    with pytest.raises(ep.EvalInputError, match="depth"):
+        ep.render_summary(_run("b", NOW + timedelta(seconds=1)), baseline=base)
+
+
+def test_claims_page_toc_and_jump_links_resolve(world):
+    page = ep.render_claims(_run(), k=2)
+    hrefs = re.findall(r'href="#([^"]+)"', page)
+    assert set(hrefs) <= set(re.findall(r'id="([^"]+)"', page))
+    assert f"memo-{MEMO}" in hrefs                              # every memo heading is linked
+    assert {f"s-{MEMO}-1", f"s-{MEMO}-2"} <= set(hrefs)         # and every section heading
+
+
+def test_claim_grid_lets_the_body_column_shrink(world):
+    # grid "1fr" means minmax(auto,1fr): the no-wrap preview line would set
+    # the column's minimum and push every card past the viewport (measured
+    # 1914px in a 1280px window on the real run). minmax(0,1fr) lets the
+    # summary line clip instead.
+    rule = ep._CSS[ep._CSS.index(".claim{"):]
+    assert "minmax(0,1fr)" in rule[:rule.index("}")]
+
+
+def test_a_depth_one_run_still_renders(world):
+    # The chart's x-axis divides by depth - 1, which now comes from the
+    # run's meta.json rather than a constant — depth 1 must not divide by
+    # zero.
+    run = _run()
+    run.meta["depth"] = 1
+    run.metrics = run.metrics[run.metrics["k"] <= 1]
+    assert "<svg" in ep.render_summary(run, k=1)
+
+
+def test_nav_stays_on_one_line_so_anchors_clear_it(world):
+    # h2/h3/.claim reserve 56px (scroll-margin-top) for the sticky nav; the
+    # Jump-to links can overflow the column, and a wrapped nav is taller
+    # than that reserve — so the nav scrolls sideways instead of wrapping.
+    rule = ep._CSS[ep._CSS.index(".nav{"):]
+    rule = rule[:rule.index("}")]
+    for needed in ("white-space:nowrap", "overflow-x:auto"):
+        assert needed in rule
+
+
+def test_claim_numbers_link_to_themselves(world):
+    # The stable per-claim ids exist so a person can hand someone a link to
+    # one claim; the number is that link, and :target highlights the arrival.
+    assert '<div class="n"><a href="#c1">1</a></div>' in ep.render_claims(_run(), k=2)
+    assert '<div class="n"><a href="#r1">1</a></div>' in ep.render_rereview(_run())
 
 
 def test_claims_page_ranks_each_piece_of_evidence_on_its_own(world):
     _with_second_evidence_row_for_c1()
     page = ep.render_claims(_run(), k=2)
     assert "2 pieces of evidence, 2 quotes" in page
-    first = page.index("dense: rank 5 · keyword: not found · both: not found")    # piece 1: d.pdf_7
-    assert first < page.index("Plant count (d.pdf_7)") < page.index("sells widgets (d.pdf_1)")
+    first = page.index('<b>Piece 1</b><span class="badge miss">rank 5</span>')    # piece 1: d.pdf_7
+    assert first < page.index("Plant count <code>d.pdf_7</code>") < page.index("sells widgets <code>d.pdf_1</code>")
 
 
 def test_rereview_page_lists_every_candidate_under_its_claim_strongest_first(world):
     page = ep.render_rereview(_run())
-    order = [page.index(s) for s in (f"<b>1.</b> {C3}", "0.800 · d.pdf_0", "0.600 · d.pdf_6",
-                                     f"<b>2.</b> {C5}", "0.700 · d.pdf_0")]
+    order = [page.index(s) for s in (f'<p class="text">{C3}</p>',
+                                     '<span class="score">0.800</span><code>d.pdf_0</code>',
+                                     '<span class="score">0.600</span><code>d.pdf_6</code>',
+                                     f'<p class="text">{C5}</p>',
+                                     '<span class="score">0.700</span><code>d.pdf_0</code>')]
     assert order == sorted(order)
+
+
+def test_rereview_folded_line_shows_score_id_and_preview(world):
+    page = ep.render_rereview(_run())
+    assert ('<summary><span class="score">0.800</span><code>d.pdf_0</code>'
+            '<span class="preview">Intro page of the annual report.</span></summary>') in page
+
+
+def test_rereview_folded_line_truncates_instead_of_wrapping(world):
+    # A long chunk id must not push the preview onto a second line: the
+    # summary line itself keeps to one line and clips with an ellipsis. The
+    # disclosure triangle survives because summary keeps display:list-item
+    # (a flex summary would drop it in most browsers).
+    rule = ep._CSS[ep._CSS.index("details summary{"):]
+    rule = rule[:rule.index("}")]
+    for needed in ("white-space:nowrap", "overflow:hidden", "text-overflow:ellipsis"):
+        assert needed in rule
+    assert "max-width:55%" not in ep._CSS
+
+
+def test_rereview_preview_is_collapsed_cut_then_escaped(world):
+    # Escaping must come AFTER the cut: cut afterwards, the 200-character
+    # slice would fall inside an entity ("&amp;" -> "&am").
+    run = _run()
+    run.candidates.loc[0, "chunk_text"] = "Heading\n" + "&" * 300
+    page = ep.render_rereview(run)
+    assert '<span class="preview">Heading ' + "&amp;" * 192 + "</span>" in page   # 8 + 192 = 200 characters
+    assert '<pre class="passage">Heading\n' + "&amp;" * 300 in page               # the full text, breaks kept
+
+
+def test_rereview_passage_keeps_line_breaks_in_its_own_box(world):
+    run = _run()
+    run.candidates.loc[0, "chunk_text"] = "Row 1\nRow 2\nRow 3"
+    page = ep.render_rereview(run)
+    assert '<pre class="passage">Row 1\nRow 2\nRow 3</pre>' in page
+    assert '<span class="preview">Row 1 Row 2 Row 3</span>' in page
+    rule = ep._CSS[ep._CSS.index(".passage{"):]
+    rule = rule[:rule.index("}")]
+    for needed in ("white-space:pre-wrap", "max-height", "overflow:auto"):    # scrolls inside its own box
+        assert needed in rule
+
+
+def test_rereview_page_toc_links_resolve(world):
+    page = ep.render_rereview(_run())
+    hrefs = re.findall(r'href="#([^"]+)"', page)
+    assert set(hrefs) <= set(re.findall(r'id="([^"]+)"', page))
+    assert f"memo-{MEMO}" in hrefs
 
 
 def test_rereview_page_folds_each_candidate(world):
@@ -993,8 +1223,9 @@ def test_traced_example_quotes_the_evidence_that_was_found(world):
 
 def test_report_shows_no_raw_metrics(world):
     # MRR rises with the number of phrases and is not comparable between
-    # sections; precision and macro recall need notes the pages no longer carry.
-    # All stay in metrics.parquet, none on a page.
+    # sections; precision needs notes no page carries. Both stay in
+    # metrics.parquet only. The claims page shows recall (EV-19) — in plain
+    # words with its own note, never as the terms banned here.
     for page in _pages(_run()):
         for banned in ("<h2>Details</h2>", "mrr", "MRR", "precision", "recall_macro", "macro recall"):
             assert banned not in page
@@ -1061,8 +1292,10 @@ def test_claims_page_reads_the_pieces_from_the_run_not_a_regrouping(world, monke
     regroup = ep._evidence_groups
     monkeypatch.setattr(ep, "_evidence_groups", lambda golden: regroup(golden)[::-1])
     page = ep.render_claims(run, k=2)
-    order = [page.index(s) for s in ("piece 1 — dense: rank 5", "Plant count (d.pdf_7)",
-                                     "piece 2 — dense: rank 2", "sells widgets (d.pdf_1)")]
+    order = [page.index(s) for s in ('<b>Piece 1</b><span class="badge miss">rank 5</span>',
+                                     "Plant count <code>d.pdf_7</code>",
+                                     '<b>Piece 2</b><span class="badge hit">retrieved</span>',
+                                     "sells widgets <code>d.pdf_1</code>")]
     assert order == sorted(order)
 
 
@@ -1120,7 +1353,8 @@ def test_report_pages_link_to_each_other_by_relative_name(world):
     assert 'href="report_rereview.html"' in summary
     assert 'href="report_dense_k5.html"' in claims
     assert 'href="report_rereview.html"' in claims
-    assert "href=" not in rereview
+    # the re-review page links only within itself: it cannot know which summary it was opened from
+    assert all(h.startswith("#") for h in re.findall(r'href="([^"]+)"', rereview))
 
 
 def test_claims_page_links_back_to_the_summary_with_its_baseline(world):
@@ -1246,8 +1480,8 @@ def test_index_rebuilt_with_other_chunks_after_retrieve_halts(world):
         ep.score_run(now=NOW)
 
 
-def test_miss_labels_follow_the_depth():
-    assert all(str(rp._RETRIEVE_DEPTH) in c for c in ep._MISS_CATEGORIES[1:])
+def test_miss_labels_follow_the_runs_depth():
+    assert all("7" in ep._miss_caption(key, 7) for key in ("deep", "none"))
 
 
 # --- PR #2 review ------------------------------------------------------------------------------
