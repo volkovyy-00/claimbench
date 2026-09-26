@@ -1269,6 +1269,8 @@ def test_a_half_scaled_from_a_fraction_rounds_away_from_zero():
     # recall and baseline changes are fractions x 100 too: a mean of 0.145 is 14.5 points, not 14
     assert (ep._round_half_away(100 * 0.145), ep._round_half_away(-100 * 0.145)) == (15, -15)
     assert (ep._round_half_away(12.5), ep._round_half_away(12.4), ep._round_half_away(-2.5)) == (13, 12, -3)
+    # an MRR is a mean of 1/rank, so it can sit ~1e-10 from a half without being one: that is not a half
+    assert ep._round_half_away(14.4999999996) == 14
 
 
 def test_summary_shows_each_memos_citation_precision_with_counts(world):
@@ -1281,7 +1283,8 @@ def test_summary_explains_recall_mrr_and_precision_in_plain_words(world):
     block = _finer(ep.render_summary(_run(), k=5))
     assert "counts every piece of evidence a claim lists" in block
     assert "read it beside claim coverage (67% (2/3) above)" in block
-    assert "best rank over all of its section's search phrases (1 of them)" in block
+    assert "best rank over all of its section's search phrases (sections here are searched with 1 phrase each)" \
+        in block
     assert "counts only the retrieved passages someone cited as evidence" in block
 
 
@@ -1289,14 +1292,14 @@ def test_mrr_note_gives_the_range_of_phrase_counts(world):
     extra = [dict(_result(BP, m, "second", 1, "d.pdf_3"), phrase_index=1) for m in ("dense", "both")]
     _write_results(_results_rows() + extra)
     _write_phrases({BP: ["business profile", "second"], OWN: ["shareholders"]})
-    assert "search phrases (1–2 of them)" in _finer(ep.render_summary(_run()))
+    assert "searched with 1–2 phrases each" in _finer(ep.render_summary(_run()))
 
 
 def test_mrr_note_leaves_out_sections_with_nothing_to_score(world):
     # History is searched with 3 phrases but holds no verifiable claim: MRR
     # never reads its ranks, so its count stays out of the range.
     _with_a_section_holding_only_an_unverifiable_claim(phrases=("history", "founding", "origins"))
-    assert "search phrases (1 of them)" in _finer(ep.render_summary(_run()))
+    assert "searched with 1 phrase each" in _finer(ep.render_summary(_run()))
 
 
 def test_summary_shows_recall_and_mrr_changes_against_a_baseline(world):
@@ -1306,18 +1309,25 @@ def test_summary_shows_recall_and_mrr_changes_against_a_baseline(world):
     # dense at k=2: recall 2/3 -> 3/3, MRR (1/2 + 0 + 1/2)/3 -> (1/2 + 1 + 1/2)/3
     block = _finer(ep.render_summary(current, k=2, baseline=base))
     assert ('<td>100% avg over 3 claims<div class="delta">+33 pts vs baseline</div></td><td>100% (3/3)</td>'
-            '<td>0.67<div class="delta">+0.33 vs baseline</div></td>') in block
+            '<td>0.67<div class="delta">+0.34 vs baseline</div></td>') in block   # 0.67 - 0.33 as shown
     # both is unchanged: its change shows as zero, not as a fall
     assert ('<tr><td>both combined (RRF)</td><td>67% avg over 3 claims<div class="delta">+0 pts vs baseline</div>'
             '</td><td>67% (2/3)</td><td>0.33<div class="delta">+0.00 vs baseline</div></td></tr>') in block
     reverse = _finer(ep.render_summary(base, k=2, baseline=current))
     assert '<div class="delta neg">-33 pts vs baseline</div>' in reverse
-    assert '<div class="delta neg">-0.33 vs baseline</div>' in reverse
+    assert '<div class="delta neg">-0.34 vs baseline</div>' in reverse
 
 
-def test_an_mrr_change_that_rounds_to_zero_is_not_shown_as_a_fall():
-    now, base = types.SimpleNamespace(mrr=0.334), types.SimpleNamespace(mrr=0.338)
-    assert ep._delta(now, base, "mrr") == '<div class="delta">+0.00 vs baseline</div>'
+@pytest.mark.parametrize("field, now, then, shown", [
+    ("mrr", 0.331, 0.334, '<div class="delta">+0.00 vs baseline</div>'),           # both show 0.33: no fall
+    ("mrr", 0.335, 0.334, '<div class="delta">+0.01 vs baseline</div>'),           # 0.34 vs 0.33
+    ("recall_macro", 0.674, 0.665, '<div class="delta">+0 pts vs baseline</div>'),  # both show 67%
+    ("coverage", 2 / 3, 1 / 3, '<div class="delta">+34 pts vs baseline</div>'),    # 67% vs 33%
+    ("coverage", 1 / 3, 2 / 3, '<div class="delta neg">-34 pts vs baseline</div>'),
+])
+def test_a_change_is_the_gap_between_the_two_figures_shown(field, now, then, shown):
+    ns = types.SimpleNamespace
+    assert ep._delta(ns(**{field: now}), ns(**{field: then}), field) == shown
 
 
 def test_a_baseline_with_no_value_shows_no_change(world):
@@ -1340,8 +1350,9 @@ _MISSING_ROWS = [
 def test_summary_refuses_a_run_missing_a_row_it_reads(world, drop, named):
     run = _run()
     run.metrics = run.metrics[~drop(run.metrics)]
-    with pytest.raises(ep.EvalInputError, match=re.escape(f"{run.run_id}: no metrics row for {named}")):
+    with pytest.raises(ep.EvalInputError, match=re.escape(f"{run.run_id}: no metrics row for {named}")) as refused:
         ep.render_summary(run)
+    assert "score the run again" in str(refused.value)
 
 
 @pytest.mark.parametrize("drop, named", _MISSING_ROWS)
@@ -1351,8 +1362,10 @@ def test_summary_refuses_a_baseline_missing_a_row_it_reads(world, drop, named):
     base = _run("base", NOW)
     base.metrics = base.metrics[~drop(base.metrics)]
     current = _run("again", NOW + timedelta(seconds=1))
-    with pytest.raises(ep.EvalInputError, match=re.escape(f"{base.run_id}: no metrics row for {named}")):
+    with pytest.raises(ep.EvalInputError, match=re.escape(f"{base.run_id}: no metrics row for {named}")) as refused:
         ep.render_summary(current, baseline=base)
+    # score rebuilds today's run, not an earlier one, so re-scoring cannot repair a baseline
+    assert "choose another baseline run" in str(refused.value)
 
 
 def test_a_run_with_no_verifiable_claims_shows_na_without_the_notes(world):

@@ -41,8 +41,8 @@ enforces that structurally.
   pooled pieces retrieved and MRR — recall and MRR with their baseline
   change — and each memo's citation precision for the chosen method, each
   with a plain-words note; only the summary shows precision or MRR.
-  Pooled pieces' counts are the one figure counted from `claim_hits`
-  rather than read from a stored row (`_pooled_pieces`). The summary
+  Pooled pieces' counts are the one summary measure counted from
+  `claim_hits` rather than read from a stored metrics row (`_pooled_pieces`). The summary
   refuses a missing all-memo or memo row by name, in the run or the
   baseline (`_required_row`, shared with the claims page); only a section
   row may be absent. Claim statuses are four badge classes (`_MISS_KEYS` +

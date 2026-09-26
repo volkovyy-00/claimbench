@@ -727,11 +727,13 @@ def _sha256(data: bytes) -> str:
 def _round_half_away(x: float) -> int:
     """x rounded to a whole number, halves away from zero (12.5 -> 13,
     -2.5 -> -3). Python's round() sends halves to the even neighbour, so 1/8
-    would show as 12% but 3/8 as 38%. x is first snapped to 9 decimals: a
+    would show as 12% but 3/8 as 38%. x is first snapped to 12 decimals: a
     stored fraction scaled by 100 can land a hair under its half (100 * 0.145
-    is 14.499999999999998), which would otherwise round the wrong way; no
-    count-based figure sits that close to a half without being one."""
-    x = round(x, 9)
+    is 14.499999999999998, an error near 1e-14), which would otherwise round
+    the wrong way. The window stays far narrower than the closest a real
+    figure can sit to a half without being one: a count ratio, or an MRR (a
+    mean of 1/rank over ranks up to 20), is at least ~1e-11 away."""
+    x = round(x, 12)
     return int(np.sign(x) * np.floor(abs(x) + 0.5))
 
 
@@ -1145,8 +1147,9 @@ def check_comparable(run: Run, baseline: Run) -> None:
 # averaged per claim (EV-19); the summary shows it per search method with
 # pooled pieces, MRR and each memo's citation precision (EV-20). All are
 # read from the stored metrics rows, never recomputed — pooled pieces'
-# counts are the one exception (_pooled_pieces) — and each is explained on
-# its page in plain words. Precision and MRR appear on the summary only.
+# counts are the one measure that is not (_pooled_pieces) — and each is
+# explained on its page in plain words. Precision and MRR appear on the
+# summary only.
 
 # %%
 _METHOD_LABEL = {"dense": "meaning search (dense)", "keyword": "keyword search (BM25)",
@@ -1384,36 +1387,43 @@ def _page(title: str, body: list[str]) -> str:
             f"<title>{_e(title)}</title><style>{_CSS}</style></head><body>" + "".join(body) + "</body></html>")
 
 
-def _required_row(run: Run, scope: str, memo_id: str, section: str, method: str, k: int):
+def _required_row(run: Run, scope: str, memo_id: str, section: str, method: str, k: int,
+                  *, baseline: bool = False):
     """The metrics row a page must read, or a refusal naming it. A run —
     or baseline — whose metrics.parquet lost rows (damaged, or filtered by
     hand) would otherwise render as zeros or crash mid-page. Only a section
     row may legitimately be absent (a section holding only unverifiable
-    claims that was never searched), so callers read those with _metric_row."""
+    claims that was never searched), so callers read those with _metric_row.
+    `baseline` changes only the advice: `score` rebuilds a run from today's
+    phrases and results, so it can repair the run being reported, never an
+    earlier run serving as its baseline."""
     row = _metric_row(run.metrics, scope, memo_id, section, method, k)
     if row is None:
         where = ("the all-memo total" if scope == "all"
                  else f"{scope} {memo_id}" + (f" {section!r}" if scope == "section" else ""))
-        raise EvalInputError([f"{run.run_id}: no metrics row for {where} at method={method}, "
-                              f"k={k} — the run's metrics table is incomplete; score the run again: "
-                              f"python eval_pipeline.py score"])
+        advice = ("this baseline run's metrics table is incomplete; choose another baseline run, or score it "
+                  "again only after restoring the phrases and results it was scored from" if baseline else
+                  "the run's metrics table is incomplete; score the run again: python eval_pipeline.py score")
+        raise EvalInputError([f"{run.run_id}: no metrics row for {where} at method={method}, k={k} — {advice}"])
     return row
 
 
 def _delta(current, base, field: str = "coverage") -> str:
     """A metrics row's change against the baseline's: '+33 pts vs baseline'
     for a fraction (coverage, recall_macro), '+0.33 vs baseline' for MRR,
-    a score. Both are one whole number — the change x 100, rounded halves
-    away from zero — so a change too small to show reads '+0.00', never
-    '-0.00', and only a change below zero wears the falling colour. ''
-    without a baseline row, or when either value is NaN (a scope with no
-    verifiable claims)."""
+    a score. The change is the gap between the two figures as the page shows
+    them — each x 100, rounded halves away from zero, as _pct and _score
+    round — so it always adds up with the numbers beside it (67% against
+    33% reads +34, not the unrounded +33). Both are whole numbers, so equal
+    figures read '+0.00', never '-0.00', and only a fall wears the falling
+    colour. '' without a baseline row, or when either value is NaN (a scope
+    with no verifiable claims)."""
     if base is None or current is None:
         return ""
     now, then = getattr(current, field), getattr(base, field)
     if pd.isna(now) or pd.isna(then):
         return ""
-    n = _round_half_away(100 * (now - then))
+    n = _round_half_away(100 * now) - _round_half_away(100 * then)
     text = f"{n / 100:+.2f}" if field == "mrr" else f"{n:+d} pts"
     cls = "delta neg" if n < 0 else "delta"
     return f'<div class="{cls}">{text} vs baseline</div>'
@@ -1542,9 +1552,9 @@ def _traced_examples(run: Run, method: str, k: int, misses: pd.DataFrame) -> str
 
 def _pooled_pieces(run: Run, method: str, k: int) -> tuple[int, int]:
     """(pieces of evidence retrieved within k, pieces there are), pooled
-    over every verifiable claim. The one figure on the pages counted
-    rather than read from a stored row: metrics.parquet keeps only the
-    fraction (recall_micro), and every percentage shows its counts.
+    over every verifiable claim. The one summary measure not read from a
+    stored metrics row: metrics.parquet keeps only the fraction
+    (recall_micro), and every percentage shows its counts.
     claim_hits holds one row per claim x method x piece, hit or not, and
     _within_k is the claims page's hit rule, so the fraction equals the
     stored recall_micro."""
@@ -1567,7 +1577,7 @@ def _metrics_block(run: Run, method: str, k: int, baseline: Run | None) -> str:
            "<th>pieces of evidence retrieved, pooled</th><th>MRR</th></tr>"]
     totals = {m: _required_row(run, "all", "ALL", "ALL", m, k) for m in _RETRIEVAL_METHODS}
     for m, row in totals.items():
-        base = _required_row(baseline, "all", "ALL", "ALL", m, k) if baseline is not None else None
+        base = _required_row(baseline, "all", "ALL", "ALL", m, k, baseline=True) if baseline is not None else None
         name = f"<th>{_e(_METHOD_LABEL[m])}</th>" if m == method else f"<td>{_e(_METHOD_LABEL[m])}</td>"
         recall = ("n/a" if pd.isna(row.recall_macro) else
                   f"{_round_half_away(100 * row.recall_macro)}% avg over {_count(int(row.claims), 'claim')}")
@@ -1580,13 +1590,14 @@ def _metrics_block(run: Run, method: str, k: int, baseline: Run | None) -> str:
     if not verifiable.empty:   # the MRR note's range is taken over these claims' sections
         counts = sorted({run.meta["phrase_counts"][memo_id][section]
                          for memo_id, section in zip(verifiable["memo_id"], verifiable["section"])})
-        phrases = f"{counts[0]}" if len(counts) == 1 else f"{counts[0]}–{counts[-1]}"
+        phrases = _count(counts[0], "phrase") if len(counts) == 1 else f"{counts[0]}–{counts[-1]} phrases"
         out.append('<div class="notes">'
                    "<p><b>Evidence recall</b> counts every piece of evidence a claim lists; alternative sources "
                    "for the same fact pull it down, so read it beside claim coverage "
                    f"({_pct(head.covered, head.claims)} above).</p>"
                    "<p><b>MRR</b> (mean reciprocal rank) takes each claim's best rank over all of its section's "
-                   f"search phrases ({phrases} of them), so it is optimistic and not comparable between "
+                   f"search phrases (sections here are searched with {phrases} each), so it is optimistic and "
+                   "not comparable between "
                    "sections.</p></div>")
     out.append(f'<table class="narrow"><tr><th>memo</th><th>citation precision, {_e(_METHOD_LABEL[method])}</th></tr>')
     for memo_id in run.meta["memos"]:
@@ -1618,7 +1629,7 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
         return _metric_row(r.metrics, "section", memo_id, section, method, k)
 
     head = _required_row(run, "all", "ALL", "ALL", method, k)
-    base = _required_row(baseline, "all", "ALL", "ALL", method, k) if baseline is not None else None
+    base = _required_row(baseline, "all", "ALL", "ALL", method, k, baseline=True) if baseline is not None else None
     covered, claims = int(head.covered), int(head.claims)
     ext = (int(head.covered_extractive), int(head.claims_extractive))
     syn = (int(head.covered_synthesized), int(head.claims_synthesized))
@@ -1667,7 +1678,8 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
              "<th>change</th></tr>"]
     for memo_id in run.meta["memos"]:
         m = _required_row(run, "memo", memo_id, "ALL", method, k)
-        mb = _required_row(baseline, "memo", memo_id, "ALL", method, k) if baseline is not None else None
+        mb = (_required_row(baseline, "memo", memo_id, "ALL", method, k, baseline=True)
+              if baseline is not None else None)
         # every claims-file section, plus any section searched that the claims file lacks
         sections = sorted(set(run.claims.loc[run.claims["memo_id"] == memo_id, "section"])
                           | set(section_rows.loc[section_rows["memo_id"] == memo_id, "section"]))
@@ -1685,7 +1697,7 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
     table = ["<table><tr><th>reason</th><th>extractive</th><th>synthesized</th></tr>"]
     for key in _MISS_KEYS:
         rows = misses[misses["key"] == key]
-        table.append(f'<tr><td><span class="badge {key}">{_e(_miss_caption(key, run.meta["depth"]))}</span></td>'
+        table.append(f'<tr><td>{_badge(key, _miss_caption(key, run.meta["depth"]))}</td>'
                      f"<td>{int((rows['bucket'] == 'EXTRACTIVE').sum())}</td>"
                      f"<td>{int((rows['bucket'] == 'SYNTHESIZED').sum())}</td></tr>")
     table.append(_TABLE_CLOSE)
@@ -1753,13 +1765,19 @@ def _within_k(rank, k: int) -> bool:
     return bool(pd.notna(rank) and rank <= k)
 
 
+def _badge(cls: str, text: str) -> str:
+    """One coloured label (.badge.<cls>) — the markup every status and
+    piece badge on the pages shares."""
+    return f'<span class="badge {cls}">{_e(text)}</span>'
+
+
 def _status_badge(reason: str | None, k: int, depth: int) -> str:
     """A claim's status at k as one of the four coloured badges: reason
     None is 'retrieved', otherwise the miss_taxonomy key — which is the
     badge class — captioned by _miss_caption. Shared by the claims page and
     the summary's traced examples, so a claim wears the same colour on both."""
     status = f"retrieved at k = {k}" if reason is None else f"missed at k = {k} — {_miss_caption(reason, depth)}"
-    return f'<span class="badge {reason or "hit"}">{_e(status)}</span>'
+    return _badge(reason or "hit", status)
 
 
 def _piece_badge(rank: float, k: int, depth: int) -> str:
@@ -1769,9 +1787,8 @@ def _piece_badge(rank: float, k: int, depth: int) -> str:
     the claim-level amber or red: those mean NO method found the claim, and
     a piece another method finds at this depth would wear the wrong meaning."""
     if _within_k(rank, k):
-        return '<span class="badge hit">retrieved</span>'
-    label = f"rank {int(rank)}" if pd.notna(rank) else f"not within {depth}"
-    return f'<span class="badge miss">{label}</span>'
+        return _badge("hit", "retrieved")
+    return _badge("miss", f"rank {int(rank)}" if pd.notna(rank) else f"not within {depth}")
 
 
 def _heading_counts(row, k: int) -> str:

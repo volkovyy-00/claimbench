@@ -39,14 +39,16 @@ minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
   run used to show zeros, and such a baseline a blank change. No run
   produced by this repository's `score` is affected — every run writes
   those rows. (EV-20)
+- A change against a baseline is now the gap between the two figures the
+  page shows, so it always adds up with them: coverage of 67% against 33%
+  reads +34 pts (it read +33, the unrounded gap). (EV-20)
 
 ### Fixed
 
-- A figure that is exactly halfway between two shown values now rounds
-  away from zero, as the report promises. A stored fraction scaled by 100
-  could land a hair under its half and round down — an MRR of exactly
-  0.275 showed as 0.27, and the claims page's recall headings could show
-  one point low. (EV-20)
+- The claims page's recall headings round an exact half up, as the report
+  promises. A stored average scaled by 100 could land a hair under its
+  half and round down, so a recall averaging exactly 14.5% showed as 14%.
+  (EV-20)
 
 ## [0.4.1] - 2026-09-26
 
