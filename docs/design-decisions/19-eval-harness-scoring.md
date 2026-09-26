@@ -48,9 +48,11 @@ stayed the same. k is per search phrase (18–43 distinct passages
 per section at k=5 on the real set, 2026-09-23); runs record phrase
 counts and the report warns when a baseline's differ. A run is refused
 unless the results were retrieved with the phrases on disk. MRR (query =
-claim) is stored, not shown — a best rank over several phrase rankings
-rises with phrase count. Precision is citation precision, a floor, pooled
-per memo. Fusion ties go to the dense rank; with the app's single-word
+claim) takes a claim's best rank over several phrase rankings, so it rises
+with phrase count; the summary shows it (EV-20) only beside a note giving
+the range of phrase counts, and no other page shows it. Precision is
+citation precision, a floor, pooled per memo — shown per memo on the
+summary with a note saying so. Fusion ties go to the dense rank; with the app's single-word
 phrases, fusion scores below dense at k=5 (a chunk in both lists outranks
 dense's own #1).
 

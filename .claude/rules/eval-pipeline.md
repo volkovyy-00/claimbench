@@ -33,13 +33,21 @@ enforces that structurally.
   own depth; only a run recording no depth is refused (`_check_view`). A
   baseline at another depth **is** refused (`check_comparable`): RRF fuses
   the two depth-cut lists, so `both`'s top k depends on the depth even at
-  the same k. No page shows
-  precision or MRR — they stay in `metrics.parquet`. The claims page shows
+  the same k. The claims page shows
   recall averaged per claim (EV-19) on each claim, memo and section, read
   from the stored metrics rows (`_heading_counts`, never recomputed), with
-  a plain-words note on what pulls it down; the summary shows no recall.
-  Claim statuses are four badge classes (`_MISS_KEYS` + `hit`; the
-  miss key is the class, captioned by `_miss_caption`); piece
+  a plain-words note on what pulls it down. The summary (EV-20,
+  `_metrics_block`) shows, per search method, recall averaged per claim,
+  pooled pieces retrieved and MRR — recall and MRR with their baseline
+  change — and each memo's citation precision for the chosen method, each
+  with a plain-words note; only the summary shows precision or MRR.
+  Pooled pieces' counts are the one figure counted from `claim_hits`
+  rather than read from a stored row (`_pooled_pieces`). The summary
+  refuses a missing all-memo or memo row by name, in the run or the
+  baseline (`_required_row`, shared with the claims page); only a section
+  row may be absent. Claim statuses are four badge classes (`_MISS_KEYS` +
+  `hit`; the miss key is the class, captioned by `_miss_caption`, rendered
+  by `_status_badge` on the claims page and the summary's traced examples); piece
   badges are grey on purpose (`_piece_badge` says why). The claims page takes
   each claim's pieces of evidence from the stored `group_chunk_ids`, never
   grouping again, so a later change to decision 1's code cannot move a

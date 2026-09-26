@@ -13,6 +13,41 @@ including most of 0.3.0, cite none. Tags start at `v0.3.0`: 0.1.0 and
 here. Pre-1.0 — the CLI/API may break between
 minor versions. How to choose the version: `CONTRIBUTING.md`, section 3.
 
+## [0.4.2] - 2026-09-26
+
+### Added
+
+- The report's summary page shows finer measures after the coverage
+  chart: for each search method at the chosen k, evidence recall averaged
+  per claim, pieces of evidence retrieved pooled (with counts) and MRR —
+  recall and MRR with their change against a baseline run — and each
+  memo's citation precision for the chosen method (with counts). Each
+  comes with a plain-words note: recall counts every piece of evidence a
+  claim lists, so it reads beside claim coverage; MRR takes a claim's best
+  rank over all of its section's search phrases (the page gives the range
+  of phrase counts); precision counts only passages someone cited, so it
+  is a floor. The numbers equal the run's `metrics.parquet` rows. The
+  claims and re-review pages still show no precision or MRR. (EV-20)
+
+### Changed
+
+- On the summary page, each traced example's outcome and each miss reason
+  wear the claims page's status colours; a missed example shows its miss
+  reason in words instead of "no — not in the top k". (EV-20)
+- The summary refuses, with a named error, a run or a baseline whose
+  `metrics.parquet` is missing the all-memo or a memo row it reads. Such a
+  run used to show zeros, and such a baseline a blank change. No run
+  produced by this repository's `score` is affected — every run writes
+  those rows. (EV-20)
+
+### Fixed
+
+- A figure that is exactly halfway between two shown values now rounds
+  away from zero, as the report promises. A stored fraction scaled by 100
+  could land a hair under its half and round down — an MRR of exactly
+  0.275 showed as 0.27, and the claims page's recall headings could show
+  one point low. (EV-20)
+
 ## [0.4.1] - 2026-09-26
 
 ### Changed
