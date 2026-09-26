@@ -919,11 +919,13 @@ def test_claims_page_headline_gives_each_methods_best_rank_as_chips(world):
 
 def test_claim_status_classes_are_four_and_distinct(world):
     # One class per miss category plus "hit" — four in all, each with its own
-    # badge rule in the stylesheet. The colours themselves are not tested.
-    assert set(ep._STATUS_CLASS) == set(ep._MISS_CATEGORIES)
-    classes = {"hit", *ep._STATUS_CLASS.values()}
-    assert len(classes) == 4
-    for cls in classes:
+    # badge rule in the stylesheet. The exact pairing is pinned: miss_taxonomy
+    # assigns categories by position, so a reorder must fail here, not
+    # silently recolour every badge.
+    assert ep._status_class(20) == {"found by another method at this depth": "other",
+                                    "found only deeper (by k=20)": "deep",
+                                    "not found by any method within 20": "none"}
+    for cls in ("hit", "other", "deep", "none"):
         assert f".badge.{cls}{{" in ep._CSS
 
 
@@ -968,9 +970,9 @@ def test_claims_page_headings_match_the_metrics_rows(world):
     assert (int(memo.covered), int(memo.claims), float(memo.recall_macro)) == (2, 3, 0.5)
     page = ep.render_claims(run, k=2)
     # each string appears twice: once on the heading, once in the table of contents
-    assert page.count("3 claims · 67% (2/3) retrieved at k = 2 · recall 50%, averaged over 3 claims") == 2
-    assert page.count("2 claims · 50% (1/2) retrieved at k = 2 · recall 25%, averaged over 2 claims") == 2   # BP
-    assert page.count("1 claim · 100% (1/1) retrieved at k = 2 · recall 100%, averaged over 1 claim") == 2   # OWN
+    assert page.count("3 claims · 67% (2/3) retrieved at k = 2 · recall 50%, the mean of each claim's piece recall") == 2
+    assert page.count("2 claims · 50% (1/2) retrieved at k = 2 · recall 25%, the mean of each claim's piece recall") == 2   # BP
+    assert page.count("1 claim · 100% (1/1) retrieved at k = 2 · recall 100%, the mean of each claim's piece recall") == 2   # OWN
 
 
 def test_claims_page_refuses_a_run_missing_its_metrics_row(world):
@@ -992,15 +994,37 @@ def test_metrics_row_refusal_names_the_section(world):
 
 
 @pytest.mark.parametrize("render", ["render_summary", "render_claims"])
-def test_report_refuses_a_run_scored_at_another_depth(world, render):
-    # Every rank label on the pages speaks today's _RETRIEVE_DEPTH (">20",
-    # "not within 20", "found only deeper (by k=20)"); a run scored to
-    # another depth would wear them wrongly even where its metrics rows
-    # cover k, so the view check refuses it outright.
+def test_report_speaks_the_runs_own_depth(world, render):
+    # A run scored under another _RETRIEVE_DEPTH stays reportable: every
+    # rank label and miss category reads the depth the run records, not
+    # today's constant. (The fixture's stored ranks all sit within 10, so
+    # trimming the metrics gives a self-consistent depth-10 run.)
     run = _run()
     run.meta["depth"] = 10
-    with pytest.raises(ep.EvalInputError, match="depth 10"):
-        getattr(ep, render)(run, k=2)
+    run.metrics = run.metrics[run.metrics["k"] <= 10]
+    page = getattr(ep, render)(run, k=1)   # at k=1, C1 (dense rank 2) is found only deeper
+    assert "found only deeper (by k=10)" in page
+    assert "by k=20" not in page and "&gt;20" not in page
+    with pytest.raises(ValueError, match="use 1..10"):
+        getattr(ep, render)(run, k=15)
+
+
+def test_report_refuses_a_run_with_no_recorded_depth(world):
+    # Without meta["depth"] no rank label can be written.
+    run = _run()
+    del run.meta["depth"]
+    with pytest.raises(ep.EvalInputError, match="no retrieval depth"):
+        ep.render_claims(run, k=2)
+
+
+def test_a_baseline_at_another_depth_is_refused(world):
+    # RRF fuses the two depth-cut lists, so "both"'s top k depends on the
+    # retrieval depth — a cross-depth delta would mix the depth change in
+    # with the phrase change it claims to measure.
+    base = _run("base", NOW)
+    base.meta["depth"] = 10
+    with pytest.raises(ep.EvalInputError, match="depth"):
+        ep.render_summary(_run("b", NOW + timedelta(seconds=1)), baseline=base)
 
 
 def test_claims_page_toc_and_jump_links_resolve(world):
@@ -1439,8 +1463,8 @@ def test_index_rebuilt_with_other_chunks_after_retrieve_halts(world):
         ep.score_run(now=NOW)
 
 
-def test_miss_labels_follow_the_depth():
-    assert all(str(rp._RETRIEVE_DEPTH) in c for c in ep._MISS_CATEGORIES[1:])
+def test_miss_labels_follow_the_runs_depth():
+    assert all("7" in c for c in ep._miss_categories(7)[1:])
 
 
 # --- PR #2 review ------------------------------------------------------------------------------

@@ -1095,11 +1095,18 @@ def load_run(run_id: str, runs_dir: str = "eval_runs") -> Run:
 
 
 def check_comparable(run: Run, baseline: Run) -> None:
-    """Refuses to compare runs measured with different rulers: the golden set
-    and the embedding model must match. The phrase config is expected to
-    differ — it is the phrase lever. Method and k are compared within one
-    run, never across runs."""
+    """Refuses to compare runs measured with different rulers: the golden
+    set, the embedding model and the retrieval depth must match. Depth is
+    part of the ruler because RRF fuses the two depth-cut lists — a chunk
+    inside both lists at one depth may be inside neither at another, so
+    "both"'s top k differs between depths even at the same k. The phrase
+    config is expected to differ — it is the phrase lever. Method and k are
+    compared within one run, never across runs."""
     problems = []
+    if run.meta.get("depth") != baseline.meta.get("depth"):
+        problems.append(f"{run.run_id} was scored at retrieval depth {run.meta.get('depth')}, "
+                        f"{baseline.run_id} at {baseline.meta.get('depth')} — not comparable: the combined "
+                        f"method's top k depends on the depth the fused lists were cut to")
     if run.meta["golden_hash"] != baseline.meta["golden_hash"]:
         problems.append(f"{run.run_id} and {baseline.run_id} were scored against different golden sets — not comparable")
     if run.meta["embedding_model"] != baseline.meta["embedding_model"]:
@@ -1118,7 +1125,9 @@ def check_comparable(run: Run, baseline: Run) -> None:
 # verifiable claim, and a re-review page listing every candidate (the same
 # for every method and k, so one file per run). Written from run records
 # only: no external asset, no script, opens with no network — a folded quote
-# is plain HTML <details>. Every percentage carries its counts. The
+# is plain HTML <details>. Every percentage carries its counts — except a
+# heading's recall, a mean of per-claim fractions with no single (x/y),
+# which names what it averages instead (_heading_counts). The
 # unverifiable count never appears without the re-review sentence beside it
 # (spec: "Unverifiable, and its honesty check"). Precision and MRR stay in
 # metrics.parquet; no page shows them. The claims page shows recall averaged
@@ -1129,21 +1138,31 @@ def check_comparable(run: Run, baseline: Run) -> None:
 _METHOD_LABEL = {"dense": "meaning search (dense)", "keyword": "keyword search (BM25)",
                  "both": "both combined (RRF)"}
 _METHOD_COLOR = {"dense": "#2563eb", "keyword": "#d97706", "both": "#059669"}
-# Each miss category's badge class on the claims page; "retrieved at k" is
-# class "hit". Four in all — the piece-level grey "miss" class is separate
-# on purpose (_piece_badge says why). _MISS_CATEGORIES is derived from this
-# dict, so the category → class pairing has one source of truth.
-_STATUS_CLASS = {"found by another method at this depth": "other",
-                 f"found only deeper (by k={_RETRIEVE_DEPTH})": "deep",
-                 f"not found by any method within {_RETRIEVE_DEPTH}": "none"}
-_MISS_CATEGORIES = tuple(_STATUS_CLASS)
+def _miss_categories(depth: int) -> tuple[str, str, str]:
+    """The three miss reasons, in the order miss_taxonomy assigns them:
+    [0] another method finds it at this k, [1] some method finds it only
+    deeper, [2] no method within the retrieval depth. Written from the
+    run's own recorded depth (meta["depth"]), never today's
+    _RETRIEVE_DEPTH, so a run scored under another depth still captions
+    itself correctly."""
+    return ("found by another method at this depth",
+            f"found only deeper (by k={depth})",
+            f"not found by any method within {depth}")
+
+
+def _status_class(depth: int) -> dict[str, str]:
+    """Each miss category's badge class on the claims page; "retrieved at
+    k" is class "hit". Four in all — the piece-level grey "miss" class is
+    separate on purpose (_piece_badge says why). Zipped positionally with
+    _miss_categories, so the category → class pairing has one source of
+    truth and a reorder there is a reorder here."""
+    return dict(zip(_miss_categories(depth), ("other", "deep", "none")))
 _TABLE_CLOSE = "</table>"
 _CSS = """
-/* Shared by the three pages; colour tokens on :root (light only). Every
-   class the summary uses is kept (body h1 h2 h3 .sub .frame .nav .tiles
-   .tile .delta .note table .bar .quote .scroll .claim .piece details);
-   EV-19 added .toc .cnt .n .text .meta .tag .badge .rank .passage
-   .preview .score for the claims and re-review pages. */
+/* Shared by the three pages; colour tokens on :root (light only). The
+   summary keeps its pre-EV-19 look (span.quote most of all); the claim,
+   piece, badge, rank, toc and passage classes serve only the claims and
+   re-review pages. */
 :root{--bg:#fafaf9;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--line2:#d1d5db;--head:#f3f4f6;
      --accent:#6366f1;--dense:#2563eb;--keyword:#d97706;--both:#059669;
      --hit:#166534;--hit-bg:#dcfce7;--other:#1e40af;--other-bg:#dbeafe;--deep:#92400e;--deep-bg:#fef3c7;
@@ -1216,27 +1235,26 @@ details[open]>summary .preview{display:none}
 
 def miss_taxonomy(run: Run, method: str, k: int) -> pd.DataFrame:
     """
-    One row per verifiable claim NOT covered at (method, k), with why:
-      - "found by another method at this depth": another method covers it at k;
-      - "found only deeper (by k=_RETRIEVE_DEPTH)": no method at k, some
-        method by k=_RETRIEVE_DEPTH;
-      - "not found by any method within _RETRIEVE_DEPTH".
+    One row per verifiable claim NOT covered at (method, k), with why —
+    the _miss_categories(run.meta["depth"]) reasons, hit-tested by
+    _within_k so this and the claims page's piece counts share one rule.
     """
     if run.claim_hits.empty:
         return pd.DataFrame(columns=["claim_id", "bucket", "category"])
+    categories = _miss_categories(run.meta["depth"])
     first = (run.claim_hits.groupby(["claim_id", "method"])["best_rank"].min()
              .unstack("method").reindex(columns=list(_RETRIEVAL_METHODS)))
     buckets = run.claim_hits.groupby("claim_id")["bucket"].first()
     rows = []
     for claim_id, ranks in first.iterrows():
-        if ranks[method] <= k:
+        if _within_k(ranks[method], k):
             continue
-        if any(ranks[m] <= k for m in _RETRIEVAL_METHODS if m != method):
-            category = _MISS_CATEGORIES[0]
-        elif (ranks <= _RETRIEVE_DEPTH).any():
-            category = _MISS_CATEGORIES[1]
+        if any(_within_k(ranks[m], k) for m in _RETRIEVAL_METHODS if m != method):
+            category = categories[0]
+        elif any(_within_k(r, run.meta["depth"]) for r in ranks):
+            category = categories[1]
         else:
-            category = _MISS_CATEGORIES[2]
+            category = categories[2]
         rows.append({"claim_id": claim_id, "bucket": buckets[claim_id], "category": category})
     return pd.DataFrame(rows, columns=["claim_id", "bucket", "category"])
 
@@ -1252,21 +1270,19 @@ def _count(n: int, noun: str) -> str:
 
 
 def _check_view(run: Run, method: str, k: int) -> None:
-    """Refuses a method or k a run does not hold (ValueError), and a run
-    scored at another retrieval depth than today's (EvalInputError): every
-    rank label on the pages speaks _RETRIEVE_DEPTH (">20", "not within 20",
-    the miss categories), so an other-depth run would be captioned wrongly
-    even where its metrics rows cover k. A baseline is not checked — deeper
-    retrieval never changes the top k, so its rows at a shared k compare."""
+    """Refuses a method the run does not hold, or a k beyond the depth the
+    run was scored to (ValueError), and a run that records no depth at all
+    (EvalInputError): the pages caption every rank from meta["depth"] —
+    ">10", "not within 10", the miss categories — so a run scored under
+    another _RETRIEVE_DEPTH still reports, wearing its own depth."""
     if method not in _RETRIEVAL_METHODS:
         raise ValueError(f"method {method!r}: use one of {', '.join(_RETRIEVAL_METHODS)}")
-    if not 1 <= k <= _RETRIEVE_DEPTH:
-        raise ValueError(f"k={k}: use 1..{_RETRIEVE_DEPTH}")
     depth = run.meta.get("depth")
-    if depth != _RETRIEVE_DEPTH:
-        raise EvalInputError([f"{run.run_id}: scored at retrieval depth {depth}, but _RETRIEVE_DEPTH is "
-                              f"{_RETRIEVE_DEPTH} — the pages' rank labels would misstate it; to report on "
-                              f"the current retrieval results, run python eval_pipeline.py score"])
+    if depth is None:
+        raise EvalInputError([f"{run.run_id}: meta.json records no retrieval depth, so no rank can be "
+                              f"captioned — score the run again: python eval_pipeline.py score"])
+    if not 1 <= k <= depth:
+        raise ValueError(f"k={k}: use 1..{depth}, the depth this run was scored to")
 
 
 def _page_names(method: str, k: int, baseline_id: str | None) -> dict[str, str]:
@@ -1348,20 +1364,21 @@ def _delta(current, base) -> str:
 
 
 def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
-    """Coverage@k, k = 1.._RETRIEVE_DEPTH, one line per method (the chosen
-    one heavier), a marker at k, and the baseline's line for the chosen
-    method dashed."""
+    """Coverage@k, k = 1..the run's recorded depth, one line per method
+    (the chosen one heavier), a marker at k, and the baseline's line for
+    the chosen method dashed (check_comparable holds the depths equal)."""
     width, height, left, right, top, bottom = 640, 260, 48, 16, 16, 36
+    depth = run.meta["depth"]
 
     def x(kk):
-        return left + (kk - 1) * (width - left - right) / (_RETRIEVE_DEPTH - 1)
+        return left + (kk - 1) * (width - left - right) / (depth - 1)
 
     def y(v):
         return top + (1 - v) * (height - top - bottom)
 
     def points(metrics, m):
         out = []
-        for kk in _K_VALUES:
+        for kk in range(1, depth + 1):
             row = _metric_row(metrics, "all", "ALL", "ALL", m, kk)
             if row is not None and not pd.isna(row.coverage):
                 out.append(f"{x(kk):.1f},{y(row.coverage):.1f}")
@@ -1373,7 +1390,7 @@ def _coverage_svg(run: Run, method: str, k: int, baseline: Run | None) -> str:
         parts.append(f'<line x1="{left}" x2="{width - right}" y1="{y(v):.1f}" y2="{y(v):.1f}" stroke="#e5e7eb"/>'
                      f'<text x="{left - 6}" y="{y(v) + 4:.1f}" font-size="11" text-anchor="end" fill="#6b7280">'
                      f'{int(v * 100)}%</text>')
-    for kk in sorted({1, *range(5, _RETRIEVE_DEPTH + 1, 5), _RETRIEVE_DEPTH}):
+    for kk in sorted({1, *range(5, depth + 1, 5), depth}):
         parts.append(f'<text x="{x(kk):.1f}" y="{height - bottom + 16}" font-size="11" text-anchor="middle" '
                      f'fill="#6b7280">{kk}</text>')
     parts.append(f'<text x="{(left + width - right) / 2:.1f}" y="{height - 4}" font-size="11" text-anchor="middle" '
@@ -1435,11 +1452,11 @@ def _traced_examples(run: Run, method: str, k: int) -> str:
     table = ["<table><tr><th>memo</th><th>claim</th><th>evidence a human confirmed</th><th>retrieved?</th></tr>"]
     for memo_id in run.meta["memos"]:
         verifiable = run.claims[(run.claims["memo_id"] == memo_id) & (run.claims["bucket"] != "UNVERIFIABLE")]
-        found = [c for c in verifiable["claim_id"] if best.loc[c, "best_rank"] <= k]
-        missed = [c for c in verifiable["claim_id"] if not best.loc[c, "best_rank"] <= k]
+        found = [c for c in verifiable["claim_id"] if _within_k(best.loc[c, "best_rank"], k)]
+        missed = [c for c in verifiable["claim_id"] if not _within_k(best.loc[c, "best_rank"], k)]
         for claim_id in found[:1] + missed[:1]:
             b = best.loc[claim_id]
-            if b.best_rank <= k:
+            if _within_k(b.best_rank, k):
                 golden = b.best_golden_chunk_id
                 quote = quote_of.loc[(claim_id, golden)]
                 g, r = _chunk_index_of(golden), _chunk_index_of(b.best_chunk_id)
@@ -1540,7 +1557,7 @@ def render_summary(run: Run, *, method: str = "dense", k: int = _TOP_K, baseline
     out.append(f"<h2>Why the missed claims were missed (k = {k})</h2>")
     misses = miss_taxonomy(run, method, k)
     table = ["<table><tr><th>reason</th><th>extractive</th><th>synthesized</th></tr>"]
-    for category in _MISS_CATEGORIES:
+    for category in _miss_categories(run.meta["depth"]):
         rows = misses[misses["category"] == category]
         table.append(f"<tr><td>{_e(category)}</td><td>{int((rows['bucket'] == 'EXTRACTIVE').sum())}</td>"
                      f"<td>{int((rows['bucket'] == 'SYNTHESIZED').sum())}</td></tr>")
@@ -1588,58 +1605,60 @@ def _evidence_pieces(run: Run) -> dict[str, list[list]]:
     return pieces
 
 
-def _rank_chips(ranks: dict[str, float], method: str) -> str:
+def _rank_chips(ranks: dict[str, float], method: str, depth: int) -> str:
     """One chip per method — 'dense 2', or a dashed 'dense >20' (class nf)
-    when the method never ranks it within _RETRIEVE_DEPTH — with a ring
-    (class cur) on the method this page scores."""
+    when the method never ranks it within the run's recorded depth — with
+    a ring (class cur) on the method this page scores."""
     chips = []
     for m in _RETRIEVAL_METHODS:
         rank = ranks[m]
         cls = f"rank {m}" + (" cur" if m == method else "") + (" nf" if pd.isna(rank) else "")
-        label = f"{m} >{_RETRIEVE_DEPTH}" if pd.isna(rank) else f"{m} {int(rank)}"
+        label = f"{m} >{depth}" if pd.isna(rank) else f"{m} {int(rank)}"
         chips.append(f'<span class="{cls}">{_e(label)}</span>')
     return "".join(chips)
 
 
 def _within_k(rank, k: int) -> bool:
     """True when a best rank places within the page's k (NaN — never within
-    _RETRIEVE_DEPTH — does not). The one hit rule behind a piece's badge and
-    its claim's 'X of Y pieces retrieved' count, so they cannot drift."""
+    the run's depth — does not). The one hit rule behind a piece's badge,
+    its claim's 'X of Y pieces retrieved' count, miss_taxonomy's buckets and
+    the traced examples, so they cannot drift."""
     return bool(pd.notna(rank) and rank <= k)
 
 
-def _piece_badge(rank: float, k: int) -> str:
+def _piece_badge(rank: float, k: int, depth: int) -> str:
     """The scored method's verdict on one piece of evidence: green
-    'retrieved' within k, otherwise grey — 'rank N' when within
-    _RETRIEVE_DEPTH, 'not within 20' when not. Grey on purpose, never the
-    claim-level amber or red: those mean NO method found the claim, and a
-    piece another method finds at this depth would wear the wrong meaning."""
+    'retrieved' within k, otherwise grey — 'rank N' when within the run's
+    recorded depth, 'not within <depth>' when not. Grey on purpose, never
+    the claim-level amber or red: those mean NO method found the claim, and
+    a piece another method finds at this depth would wear the wrong meaning."""
     if _within_k(rank, k):
         return '<span class="badge hit">retrieved</span>'
-    label = f"rank {int(rank)}" if pd.notna(rank) else f"not within {_RETRIEVE_DEPTH}"
+    label = f"rank {int(rank)}" if pd.notna(rank) else f"not within {depth}"
     return f'<span class="badge miss">{label}</span>'
 
 
 def _heading_counts(row, k: int) -> str:
     """A memo or section heading's counts — '3 claims · 67% (2/3) retrieved
-    at k = 2 · recall 50%, averaged over 3 claims' — read from its metrics
-    row (_metric_row), never recomputed, so every heading matches the run's
-    metrics.parquet."""
-    claims = _count(int(row.claims), "claim")
-    return (f"{claims} · {_pct(row.covered, row.claims)} retrieved at k = {k} · "
-            f"recall {_round_half_away(100 * row.recall_macro)}%, averaged over {claims}")
+    at k = 2 · recall 50%, the mean of each claim's piece recall' — read
+    from its metrics row (_metric_row), never recomputed, so every heading
+    matches the run's metrics.parquet. The recall carries no (x/y): a mean
+    of per-claim fractions has none, so it names what it averages, over the
+    claim count that opens the line."""
+    return (f"{_count(int(row.claims), 'claim')} · {_pct(row.covered, row.claims)} retrieved at k = {k} · "
+            f"recall {_round_half_away(100 * row.recall_macro)}%, the mean of each claim's piece recall")
 
 
 def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: str | None,
-                 method: str, k: int) -> str:
+                 method: str, k: int, depth: int) -> str:
     """One claim on the claims page: its number, text and type, its status
     badge (reason None means retrieved; otherwise the miss_taxonomy category,
-    class _STATUS_CLASS), one rank chip per method, and its recall at k with
+    class _status_class), one rank chip per method, and its recall at k with
     counts, then — folded — each piece of evidence with its own badge and
     chips and its quotes (_quotes: a human-added row can hold several)."""
     piece_ranks = [{m: ranks[(claim.claim_id, g, m)] for m in _RETRIEVAL_METHODS} for g in range(len(pieces))]
     best = {m: min((r[m] for r in piece_ranks if pd.notna(r[m])), default=np.nan) for m in _RETRIEVAL_METHODS}
-    cls = "hit" if reason is None else _STATUS_CLASS[reason]
+    cls = "hit" if reason is None else _status_class(depth)[reason]
     status = f"retrieved at k = {k}" if reason is None else f"missed at k = {k} — {reason}"
     hit = sum(1 for r in piece_ranks if _within_k(r[method], k))
     folded, n_quotes = [], 0
@@ -1647,11 +1666,11 @@ def _claim_block(number: int, claim, pieces: list[list], ranks: dict, reason: st
         quotes = [f'<blockquote class="quote">{_e(q)} <code>{_e(row.chunk_id)}</code></blockquote>'
                   for row in piece for q in _quotes(row)]
         n_quotes += len(quotes)
-        folded.append(f'<div class="piece"><p class="meta"><b>Piece {i}</b>{_piece_badge(piece_rank[method], k)}'
-                      f'{_rank_chips(piece_rank, method)}</p>{"".join(quotes)}</div>')
+        folded.append(f'<div class="piece"><p class="meta"><b>Piece {i}</b>{_piece_badge(piece_rank[method], k, depth)}'
+                      f'{_rank_chips(piece_rank, method, depth)}</p>{"".join(quotes)}</div>')
     return (f'<article class="claim" id="c{number}"><div class="n"><a href="#c{number}">{number}</a></div><div>'
             f'<p class="text">{_e(claim.claim_text)} <span class="tag">{_e(claim.bucket.lower())}</span></p>'
-            f'<p class="meta"><span class="badge {cls}">{_e(status)}</span>{_rank_chips(best, method)}'
+            f'<p class="meta"><span class="badge {cls}">{_e(status)}</span>{_rank_chips(best, method, depth)}'
             f'<span>{hit} of {_count(len(pieces), "piece")} retrieved — {_pct(hit, len(pieces))}</span></p>'
             f'<details><summary>{_count(len(pieces), "piece")} of evidence, {_count(n_quotes, "quote")}</summary>'
             f'{"".join(folded)}</details></div></article>')
@@ -1674,6 +1693,7 @@ def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: di
     render_summary — but None keeps this page's bold label and Jump-to links
     (_nav), leaving out only the links to the other pages. Returns the HTML."""
     _check_view(run, method, k)
+    depth = run.meta["depth"]
     pieces = _evidence_pieces(run)
     ranks = run.claim_hits.set_index(["claim_id", "group", "method"])["best_rank"].to_dict()
     misses = miss_taxonomy(run, method, k)
@@ -1692,10 +1712,10 @@ def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: di
     legend = ", ".join(f"{m} = {_METHOD_LABEL[m]}" for m in _RETRIEVAL_METHODS)
     intro = (
         f'<p class="sub">Every verifiable claim ({len(verifiable)}), with the evidence a human confirmed and '
-        f'the best rank at which each search method retrieved it within the top {_RETRIEVE_DEPTH} passages '
+        f'the best rank at which each search method retrieved it within the top {depth} passages '
         f'per search phrase ({_e(legend)}). A chip reads <span class="rank dense">dense 2</span> = found at '
-        f'rank 2; <span class="rank keyword nf">keyword &gt;{_RETRIEVE_DEPTH}</span> = not within the top '
-        f'{_RETRIEVE_DEPTH}; the ringed chip is the method this page scores. A piece of evidence counts as '
+        f'rank 2; <span class="rank keyword nf">keyword &gt;{depth}</span> = not within the top '
+        f'{depth}; the ringed chip is the method this page scores. A piece of evidence counts as '
         f'retrieved when that method ranks it within k = {k}; quotes the pipeline groups as one piece share '
         f'its rank. Recall counts every piece a claim lists: when the review lists alternative or duplicate '
         f'sources for the same fact, each counts, so recall understates how often the fact itself was found; '
@@ -1719,7 +1739,7 @@ def render_claims(run: Run, *, method: str = "dense", k: int = _TOP_K, pages: di
             for claim in claims.itertuples(index=False):
                 number += 1
                 bodies.append(_claim_block(number, claim, pieces[claim.claim_id], ranks,
-                                           reason_of.get(claim.claim_id), method, k))
+                                           reason_of.get(claim.claim_id), method, k, depth))
         toc.append(f'<div><b><a href="#{_memo_anchor(memo_id)}">{_e(memo_id)}</a></b> '
                    f'<span class="cnt">{memo_counts}</span><ul>{"".join(items)}</ul></div>')
     out = [f"<h1>Claims — {_e(run.run_id)}</h1>", _view_line(run, method, k),

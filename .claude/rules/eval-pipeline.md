@@ -26,10 +26,14 @@ enforces that structurally.
   the summary `report_<method>_k<k>[_vs_<baseline>].html`, the claims page
   (same name ending `_claims`), and `report_rereview.html` (the same for
   every method and k, so one per run, linking only within itself). Links
-  are relative; only the summary carries baseline changes. A run scored at
-  another retrieval depth than today's `_RETRIEVE_DEPTH` is refused
-  (`_check_view`): the pages' rank labels speak today's depth. A baseline
-  is not depth-checked — deeper retrieval never changes the top k. No page shows
+  are relative; only the summary carries baseline changes. The pages
+  caption every rank from the run's own recorded depth (`meta["depth"]`,
+  via `_miss_categories`/`_status_class`/`_rank_chips`/`_piece_badge`), so
+  a run scored under another `_RETRIEVE_DEPTH` still reports, wearing its
+  own depth; only a run recording no depth is refused (`_check_view`). A
+  baseline at another depth **is** refused (`check_comparable`): RRF fuses
+  the two depth-cut lists, so `both`'s top k depends on the depth even at
+  the same k. No page shows
   precision or MRR — they stay in `metrics.parquet`. The claims page shows
   recall averaged per claim (EV-19) on each claim, memo and section, read
   from the stored metrics rows (`_heading_counts`, never recomputed), with
